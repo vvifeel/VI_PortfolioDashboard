@@ -8,21 +8,42 @@ import json
 import argparse
 import os
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, date
 
 DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(__file__), "..", "data", "portfolio.db"))
+
+# PUBLIC fields allowed for agent writes
+ALLOWED_PROFILE_FIELDS = {
+    "current_employee_count", "employee_count_history", "total_funding_external_m",
+    "latest_external_round", "latest_external_valuation_m", "revenue_range",
+    "competitors", "all_investors", "technologies", "linkedin_url",
+    "twitter_url", "logo_url", "acquisition_info", "ipo_info",
+    "description", "business_model", "key_products",
+    "ceo_name", "cto_name", "cfo_name", "cofounders",
+    "website", "hq_city", "founded_year", "status",
+}
 
 
 def get_conn():
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.row_factory = sqlite3.Row
     return conn
 
 
+def get_config(conn) -> dict:
+    try:
+        rows = conn.execute("SELECT key, value FROM intelligence_config").fetchall()
+        return {r["key"]: r["value"] for r in rows}
+    except Exception:
+        return {}
+
+
+# ─── News ────────────────────────────────────────────────────────────────────
+
 def write_news(company_name: str, title: str, summary: str, source: str,
-               source_url: str, urgency: int, tags: list[str],
+               source_url: str, urgency: int, tags: list,
                raw_content: str = "", published_at: str = ""):
-    """뉴스 아이템 저장 (source_url 중복 시 무시)"""
     conn = get_conn()
     try:
         conn.execute("""
@@ -46,35 +67,260 @@ def write_news(company_name: str, title: str, summary: str, source: str,
         conn.close()
 
 
+# ─── Profile Update ──────────────────────────────────────────────────────────
+
 def update_company_profile(company_name: str, **kwargs):
     """기업 프로필의 Agent 수집 필드 업데이트 (PUBLIC 필드만)"""
-    ALLOWED = {
-        "current_employee_count", "employee_count_history", "total_funding_external_m",
-        "latest_external_round", "latest_external_valuation_m", "revenue_range",
-        "competitors", "all_investors", "technologies", "linkedin_url",
-        "twitter_url", "logo_url", "acquisition_info", "ipo_info",
-    }
-    safe_kwargs = {k: v for k, v in kwargs.items() if k in ALLOWED}
-    if not safe_kwargs:
+    safe = {k: v for k, v in kwargs.items() if k in ALLOWED_PROFILE_FIELDS}
+    if not safe:
         return
-    safe_kwargs["last_enriched_at"] = datetime.now().isoformat()
-
+    safe["last_enriched_at"] = datetime.now().isoformat()
     conn = get_conn()
     try:
-        sets = ", ".join(f"{k}=?" for k in safe_kwargs)
-        vals = list(safe_kwargs.values()) + [company_name]
+        sets = ", ".join(f"{k}=?" for k in safe)
+        vals = list(safe.values()) + [company_name]
         conn.execute(f"UPDATE companies SET {sets} WHERE company_name=?", vals)
         conn.commit()
-        print(f"✅ Profile updated: {company_name} ({list(safe_kwargs.keys())})")
+        print(f"✅ Profile updated: {company_name} ({list(safe.keys())})")
     except Exception as e:
         print(f"❌ Error: {e}", file=sys.stderr)
     finally:
         conn.close()
 
 
+def update_company_field(company_name: str, field: str, value: str,
+                         source: str = "", reason: str = "", log: bool = True):
+    """Update a single PUBLIC field and optionally log the change."""
+    if field not in ALLOWED_PROFILE_FIELDS:
+        print(f"❌ Field '{field}' is not in the allowed PUBLIC field list.", file=sys.stderr)
+        sys.exit(1)
+    conn = get_conn()
+    try:
+        row = conn.execute(f"SELECT {field} FROM companies WHERE company_name=?",
+                           (company_name,)).fetchone()
+        if row is None:
+            print(f"❌ Company not found: {company_name}", file=sys.stderr)
+            sys.exit(1)
+        before_val = dict(row)[field]
+        conn.execute(f"UPDATE companies SET {field}=?, last_enriched_at=? WHERE company_name=?",
+                     (value, datetime.now().isoformat(), company_name))
+        if log:
+            today = date.today().isoformat()
+            conn.execute("""
+                INSERT INTO company_update_log
+                    (run_date, company_name, fields_updated, before_values, after_values, reason, source)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (today, company_name,
+                  json.dumps([field]),
+                  json.dumps({field: before_val}),
+                  json.dumps({field: value}),
+                  reason, source))
+        conn.commit()
+        print(f"✅ {company_name}.{field} updated ({source})")
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+    finally:
+        conn.close()
+
+
+def log_profile_update(company_name: str, fields_updated: list,
+                       before_values: dict, after_values: dict,
+                       reason: str, priority_score: float, source: str,
+                       notes: str = ""):
+    """Log a completed multi-field profile update."""
+    conn = get_conn()
+    try:
+        today = date.today().isoformat()
+        conn.execute("""
+            INSERT INTO company_update_log
+                (run_date, company_name, fields_updated, before_values, after_values,
+                 reason, priority_score, source, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (today, company_name,
+              json.dumps(fields_updated, ensure_ascii=False),
+              json.dumps(before_values, ensure_ascii=False),
+              json.dumps(after_values, ensure_ascii=False),
+              reason, priority_score, source, notes))
+        conn.execute("""
+            UPDATE companies
+            SET last_profile_update_at=?, update_reason=?, priority_score=?
+            WHERE company_name=?
+        """, (datetime.now().isoformat(), reason, priority_score, company_name))
+        conn.commit()
+        print(f"✅ Update logged: {company_name} [{len(fields_updated)} fields] (score={priority_score:.1f})")
+    except Exception as e:
+        print(f"❌ Error: {e}", file=sys.stderr)
+    finally:
+        conn.close()
+
+
+# ─── Priority Scoring ────────────────────────────────────────────────────────
+
+def calculate_priority_scores(print_results: bool = False) -> list:
+    """
+    Score every company for profile enrichment priority.
+
+    Score = tier_base + status_weight + staleness + urgency_bonus + missing_bonus + starvation_boost
+
+    Starvation boost (+5.0) fires when a company hasn't been touched in starvation_days (default 15).
+    """
+    conn = get_conn()
+    cfg = get_config(conn)
+    starvation_days  = int(cfg.get("starvation_days",     "15"))
+    force_check_days = int(cfg.get("force_check_days",    "15"))
+    tier1_days       = int(cfg.get("tier1_frequency_days","7"))
+    tier2_days       = int(cfg.get("tier2_frequency_days","14"))
+    tier3_days       = int(cfg.get("tier3_frequency_days","30"))
+
+    try:
+        companies = conn.execute("""
+            SELECT company_name, status, monitoring_tier, latest_urgency,
+                   last_profile_update_at,
+                   current_employee_count, total_funding_external_m,
+                   latest_external_round, linkedin_url, logo_url, competitors
+            FROM companies
+        """).fetchall()
+    except Exception:
+        conn.close()
+        return []
+    conn.close()
+
+    today = date.today()
+    scores = []
+
+    for c in companies:
+        row = dict(c)
+        name    = row["company_name"]
+        status  = (row["status"] or "Alive").lower()
+        tier    = row["monitoring_tier"] or 2
+        urgency = row["latest_urgency"] or 1
+
+        tier_base = {1: 3.0, 2: 2.0, 3: 1.0}.get(tier, 1.0)
+        status_w  = {"alive": 2.0, "ipo": 2.5, "acquired": 0.8, "dead": 0.0,
+                     "wound": 0.0}.get(status.split()[0], 1.5)
+
+        freq_days = {1: tier1_days, 2: tier2_days, 3: tier3_days}.get(tier, force_check_days)
+        if row["last_profile_update_at"]:
+            try:
+                last_dt = datetime.fromisoformat(row["last_profile_update_at"]).date()
+                days_old = (today - last_dt).days
+            except Exception:
+                days_old = force_check_days * 4
+        else:
+            days_old = force_check_days * 4  # never updated = maximally stale
+
+        staleness     = min(3.0, days_old / max(freq_days, 1))
+        urgency_bonus = urgency * 0.4
+        missing_fields = sum(1 for f in [
+            "current_employee_count", "total_funding_external_m",
+            "latest_external_round", "linkedin_url", "logo_url", "competitors"
+        ] if not row.get(f))
+        missing_bonus    = missing_fields * 0.3
+        starvation_boost = 5.0 if days_old >= starvation_days else 0.0
+
+        score = tier_base + status_w + staleness + urgency_bonus + missing_bonus + starvation_boost
+
+        reason_parts = []
+        if starvation_boost > 0:
+            reason_parts.append(f"starvation({days_old}d)")
+        if urgency >= 4:
+            reason_parts.append(f"urgency={urgency}")
+        if missing_fields >= 3:
+            reason_parts.append(f"missing_fields={missing_fields}")
+        if staleness >= 2.0:
+            reason_parts.append("overdue")
+
+        scores.append({
+            "company_name":       name,
+            "score":              round(score, 2),
+            "reason":             ", ".join(reason_parts) or "scheduled",
+            "tier":               tier,
+            "status":             status,
+            "days_since_update":  days_old,
+            "starvation":         starvation_boost > 0,
+        })
+
+    scores.sort(key=lambda x: -x["score"])
+
+    if print_results:
+        print(f"{'Company':<35} {'Score':>6}  {'T'} {'Days':>5}  Reason")
+        print("-" * 75)
+        for s in scores[:30]:
+            star = "⚠ " if s["starvation"] else "  "
+            print(f"{star}{s['company_name']:<33} {s['score']:>6.2f}  {s['tier']}  {s['days_since_update']:>4}d  {s['reason']}")
+
+    return scores
+
+
+# ─── Plan Generation ─────────────────────────────────────────────────────────
+
+def generate_plan(budget: int = None, print_results: bool = False) -> dict:
+    """
+    Create today's enrichment plan based on priority scores and session budget.
+
+    The budget represents max CB Insights deep-dive calls per run. Since Claude Code
+    does not expose token usage via API, this count acts as a token-usage proxy.
+    """
+    conn = get_conn()
+    cfg = get_config(conn)
+    budget_total = budget or int(cfg.get("session_deep_dive_limit", "30"))
+    today = date.today().isoformat()
+    done_today = 0
+    try:
+        row = conn.execute(
+            "SELECT COUNT(*) as n FROM company_update_log WHERE run_date=?", (today,)
+        ).fetchone()
+        done_today = row["n"] if row else 0
+    except Exception:
+        pass
+    conn.close()
+
+    remaining = max(0, budget_total - done_today)
+    scores    = calculate_priority_scores()
+    ordered   = scores[:remaining]
+    deferred  = [{"company_name": d["company_name"], "score": d["score"]} for d in scores[remaining:]]
+
+    plan = {
+        "plan_date":    today,
+        "budget_total": budget_total,
+        "budget_used":  done_today,
+        "ordered_list": ordered,
+        "deferred_list": deferred,
+    }
+
+    conn = get_conn()
+    try:
+        conn.execute("DELETE FROM company_update_plan WHERE plan_date=?", (today,))
+        conn.execute("""
+            INSERT INTO company_update_plan
+                (plan_date, ordered_list, budget_total, budget_used, deferred_list)
+            VALUES (?, ?, ?, ?, ?)
+        """, (today,
+              json.dumps(ordered, ensure_ascii=False),
+              budget_total, done_today,
+              json.dumps(deferred, ensure_ascii=False)))
+        conn.commit()
+    except Exception as e:
+        print(f"⚠ Plan save error: {e}", file=sys.stderr)
+    finally:
+        conn.close()
+
+    if print_results:
+        print(f"\n📋 Enrichment Plan  {today}")
+        print(f"   Budget: {remaining} slots remaining  ({done_today}/{budget_total} used today)\n")
+        for i, c in enumerate(ordered, 1):
+            star = "⚠ " if c.get("starvation") else "  "
+            print(f"  {i:>3}.{star}{c['company_name']:<33} score={c['score']:.2f}  {c['reason']}")
+        if deferred:
+            print(f"\n  … {len(deferred)} companies deferred to future runs.")
+
+    return plan
+
+
+# ─── Update Log ──────────────────────────────────────────────────────────────
+
 def log_update_run(run_type: str, sources_used: list, companies_hit: int,
                    news_collected: int, errors: list):
-    """업데이트 실행 로그 저장"""
     conn = get_conn()
     try:
         conn.execute("""
@@ -86,329 +332,108 @@ def log_update_run(run_type: str, sources_used: list, companies_hit: int,
         conn.close()
 
 
-def get_company_names() -> list[str]:
-    """포트폴리오 기업명 목록 반환 (Agent 수집 루프용)"""
+# ─── Company List ────────────────────────────────────────────────────────────
+
+def get_company_names() -> list:
     conn = get_conn()
     rows = conn.execute("SELECT DISTINCT company_name FROM companies ORDER BY company_name").fetchall()
     conn.close()
-    return [r[0] for r in rows]
+    return [r["company_name"] for r in rows]
 
 
-def calculate_priority_scores():
-    """Compute priority score for every company and update DB."""
-    conn = get_conn()
-    c = conn.cursor()
-
-    companies = c.execute("""
-        SELECT c.company_name, c.monitoring_tier, c.status, c.last_profile_update_at,
-               c.latest_urgency, c.description, c.ceo_name, c.current_employee_count,
-               c.priority_score
-        FROM companies c
-    """).fetchall()
-
-    now = datetime.now()
-    updates = []
-
-    for row in companies:
-        name, tier, status, last_update, urgency, desc, ceo, emp_count, _ = row
-
-        # Base score from tier
-        tier_score = {1: 100, 2: 50, 3: 20}.get(tier or 2, 50)
-
-        # Status multiplier
-        status_str = (status or '').lower()
-        if 'pre-ipo' in status_str or 'pre ipo' in status_str:
-            multiplier = 2.0
-        elif 'ipo' in status_str:
-            multiplier = 1.5
-        elif 'acquired' in status_str or 'subsidiary' in status_str:
-            multiplier = 0.5
-        elif 'dead' in status_str or 'wound' in status_str or 'closed' in status_str:
-            multiplier = 0.1
-        else:
-            multiplier = 1.0
-
-        score = tier_score * multiplier
-
-        # Staleness bonus
-        reason_parts = []
-        if last_update:
-            try:
-                days_ago = (now - datetime.fromisoformat(last_update.replace('Z', ''))).days
-            except Exception:
-                days_ago = 999
-        else:
-            days_ago = 999
-
-        if days_ago >= 60:
-            score += 100
-            reason_parts.append(f"기아방지({days_ago}일 미체크)")
-        elif days_ago >= 30:
-            score += 50
-            reason_parts.append(f"장기 미체크({days_ago}일)")
-        elif days_ago >= 14:
-            score += 25
-
-        # Urgency bonus
-        urgency_bonus = {5: 80, 4: 40, 3: 20, 2: 5}.get(urgency or 0, 0)
-        if urgency_bonus:
-            score += urgency_bonus
-            if urgency and urgency >= 4:
-                reason_parts.append(f"긴급뉴스(Level {urgency})")
-
-        # Missing fields bonus
-        missing = []
-        if not desc:
-            missing.append("기업소개")
-            score += 30
-        if not ceo:
-            missing.append("CEO")
-            score += 20
-        if not emp_count:
-            missing.append("직원수")
-            score += 15
-        if missing:
-            reason_parts.append(f"미보완: {', '.join(missing)}")
-
-        reason = " / ".join(reason_parts) if reason_parts else "정기 체크"
-        updates.append((round(score, 2), reason, name))
-
-    c.executemany("UPDATE companies SET priority_score=?, update_reason=? WHERE company_name=?", updates)
-    conn.commit()
-    conn.close()
-    print(f"✅ 우선순위 점수 계산 완료: {len(updates)}개 기업")
-    return updates
-
-
-def generate_plan(budget: int = 30):
-    """Generate today's update plan and save to DB."""
-    conn = get_conn()
-    c = conn.cursor()
-
-    # Recalculate scores first
-    calculate_priority_scores()
-    conn.close()
-    conn = get_conn()
-    c = conn.cursor()
-
-    today = datetime.now().strftime('%Y-%m-%d')
-
-    # Get ordered list
-    companies = c.execute("""
-        SELECT company_name, monitoring_tier, status, priority_score, update_reason,
-               last_profile_update_at, latest_urgency
-        FROM companies
-        ORDER BY priority_score DESC
-    """).fetchall()
-
-    ordered = []
-    for row in companies:
-        name, tier, status, score, reason, last_update, urgency = row
-        ordered.append({
-            "company": name,
-            "tier": tier or 2,
-            "status": status or "Unknown",
-            "score": round(score or 0, 1),
-            "reason": reason or "정기 체크",
-            "last_update": last_update,
-            "urgency": urgency or 0
-        })
-
-    today_batch = ordered[:budget]
-    deferred = [o["company"] for o in ordered[budget:]]
-
-    # Delete old plan for today if exists
-    c.execute("DELETE FROM company_update_plan WHERE plan_date=?", (today,))
-    c.execute("""
-        INSERT INTO company_update_plan (plan_date, ordered_list, budget_total, deferred_list)
-        VALUES (?, ?, ?, ?)
-    """, (today, json.dumps(ordered, ensure_ascii=False),
-          budget, json.dumps(deferred, ensure_ascii=False)))
-
-    conn.commit()
-    conn.close()
-
-    print(f"\n📋 오늘의 업데이트 계획 ({today})")
-    print(f"예산: {budget}콜 / 총 {len(ordered)}개 기업")
-    print(f"오늘 처리: {len(today_batch)}개 / 다음으로 연기: {len(deferred)}개\n")
-    for i, item in enumerate(today_batch[:10], 1):
-        print(f"  {i:2d}. {item['company']:<30} score={item['score']:.1f}  {item['reason']}")
-    if len(today_batch) > 10:
-        print(f"  ... 외 {len(today_batch)-10}개")
-
-    return today_batch
-
-
-def log_profile_update(company: str, fields: list, before: dict, after: dict,
-                        reason: str, source: str, notes: str = ""):
-    """Log a company profile update to company_update_log."""
-    conn = get_conn()
-    today = datetime.now().strftime('%Y-%m-%d')
-
-    # Filter to only actually changed fields
-    changed_fields = [f for f in fields if before.get(f) != after.get(f)]
-
-    if not changed_fields:
-        conn.close()
-        return False
-
-    conn.execute("""
-        INSERT INTO company_update_log
-          (run_date, company_name, fields_updated, before_values, after_values, reason, source, notes)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    """, (today, company,
-          json.dumps(changed_fields, ensure_ascii=False),
-          json.dumps({k: before.get(k) for k in changed_fields}, ensure_ascii=False),
-          json.dumps({k: after.get(k) for k in changed_fields}, ensure_ascii=False),
-          reason, source, notes))
-
-    # Mark company as updated
-    conn.execute("""
-        UPDATE companies SET last_profile_update_at = datetime('now')
-        WHERE company_name = ?
-    """, (company,))
-
-    conn.commit()
-    conn.close()
-    print(f"  ✅ {company}: {', '.join(changed_fields)} 업데이트 기록")
-    return True
-
-
-def update_company_field(company: str, field: str, value, source: str = "agent"):
-    """Update a single PUBLIC field in companies table and log the change."""
-    # Only allow PUBLIC fields (not investment data)
-    ALLOWED_FIELDS = {
-        'status', 'ceo_name', 'description', 'current_employee_count',
-        'total_funding_external_m', 'latest_external_round', 'latest_external_valuation_m',
-        'revenue_range', 'competitors', 'all_investors', 'technologies',
-        'linkedin_url', 'twitter_url', 'logo_url', 'latest_news_headline',
-        'latest_urgency', 'acquisition_info', 'ipo_info', 'website',
-        'sub_sector', 'business_model', 'key_products', 'hq_city',
-        'employee_count_history', 'cofounders', 'founded_year',
-    }
-    if field not in ALLOWED_FIELDS:
-        print(f"  ⚠️  필드 '{field}'는 업데이트 불가 (보안 정책)")
-        return False
-
-    conn = get_conn()
-    row = conn.execute(f"SELECT {field} FROM companies WHERE company_name=?", (company,)).fetchone()
-    if not row:
-        conn.close()
-        print(f"  ⚠️  기업 '{company}' 없음")
-        return False
-
-    before_val = row[0]
-    conn.execute(f"UPDATE companies SET {field}=?, last_profile_update_at=datetime('now') WHERE company_name=?",
-                 (value, company))
-    conn.commit()
-    conn.close()
-
-    print(f"  ✅ {company}.{field}: {before_val!r} → {value!r}")
-    return True
-
-
-def show_plan(date: str = None):
-    """Show the update plan for a given date."""
-    conn = get_conn()
-    date = date or datetime.now().strftime('%Y-%m-%d')
-    row = conn.execute("SELECT * FROM company_update_plan WHERE plan_date=?", (date,)).fetchone()
-    if not row:
-        print(f"❌ {date} 계획 없음. 'generate-plan' 먼저 실행하세요.")
-        conn.close()
-        return
-
-    _, plan_date, ordered_json, budget_total, budget_used, deferred_json, completed, summary, created_at = row
-    ordered = json.loads(ordered_json)
-    deferred = json.loads(deferred_json)
-
-    print(f"\n📋 업데이트 계획 — {plan_date}")
-    print(f"예산 {budget_used}/{budget_total}콜 사용 | 연기 {len(deferred)}개 | {'완료' if completed else '진행중'}")
-    print("─" * 60)
-    for i, item in enumerate(ordered[:budget_total], 1):
-        print(f"  {i:2d}. {item['company']:<28} [{item['status']:<10}] score={item['score']:.1f}  {item['reason']}")
-    conn.close()
-
+# ─── CLI ─────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    sub = parser.add_subparsers(dest="command")
+    parser = argparse.ArgumentParser(description="Portfolio DB writer — PUBLIC fields only")
+    sub = parser.add_subparsers(dest="cmd")
 
-    # news 서브커맨드
-    p_news = sub.add_parser("news", help="뉴스 아이템 저장")
-    p_news.add_argument("--company",  required=True)
-    p_news.add_argument("--title",    required=True)
-    p_news.add_argument("--summary",  default="")
-    p_news.add_argument("--source",   default="")
-    p_news.add_argument("--url",      default="")
-    p_news.add_argument("--urgency",  type=int, default=1)
-    p_news.add_argument("--tags",     default="[]")
-    p_news.add_argument("--raw",      default="")
-    p_news.add_argument("--published", default="")
+    p = sub.add_parser("news", help="뉴스 아이템 저장")
+    p.add_argument("--company",   required=True)
+    p.add_argument("--title",     required=True)
+    p.add_argument("--summary",   default="")
+    p.add_argument("--source",    default="")
+    p.add_argument("--url",       default="")
+    p.add_argument("--urgency",   type=int, default=1)
+    p.add_argument("--tags",      default="[]")
+    p.add_argument("--raw",       default="")
+    p.add_argument("--published", default="")
 
-    # list-companies 서브커맨드
     sub.add_parser("list-companies", help="포트폴리오 기업명 목록 출력")
+    sub.add_parser("score-companies", help="우선순위 점수 계산 및 출력")
 
-    # generate-plan
-    p_plan = sub.add_parser('generate-plan')
-    p_plan.add_argument('--budget', default='30')
+    p = sub.add_parser("generate-plan", help="오늘의 업데이트 계획 생성")
+    p.add_argument("--budget", type=int, default=None)
 
-    # show-plan
-    p_show = sub.add_parser('show-plan')
-    p_show.add_argument('--date')
+    sub.add_parser("show-plan", help="오늘의 업데이트 계획 조회")
 
-    # update-company
-    p_upd = sub.add_parser('update-company')
-    p_upd.add_argument('--company', required=True)
-    p_upd.add_argument('--field', required=True)
-    p_upd.add_argument('--value', required=True)
-    p_upd.add_argument('--source', default='agent')
+    p = sub.add_parser("update-company", help="기업 프로필 단일 필드 업데이트")
+    p.add_argument("--company", required=True)
+    p.add_argument("--field",   required=True)
+    p.add_argument("--value",   required=True)
+    p.add_argument("--source",  default="")
+    p.add_argument("--reason",  default="")
+    p.add_argument("--no-log",  action="store_true")
 
-    # score-companies
-    sub.add_parser('score-companies')
-
-    # log-profile-update
-    p_logp = sub.add_parser('log-profile-update')
-    p_logp.add_argument('--company', required=True)
-    p_logp.add_argument('--fields', required=True)   # JSON array string
-    p_logp.add_argument('--before', required=True)   # JSON object string
-    p_logp.add_argument('--after', required=True)    # JSON object string
-    p_logp.add_argument('--reason', required=True)
-    p_logp.add_argument('--source', default='agent')
-    p_logp.add_argument('--notes', default='')
-
-    # log-run
-    p_logrun = sub.add_parser('log-run')
-    p_logrun.add_argument('--type', default='scheduled')
-    p_logrun.add_argument('--companies', type=int, default=0)
-    p_logrun.add_argument('--news', type=int, default=0)
+    p = sub.add_parser("log-profile-update", help="멀티 필드 프로필 업데이트 로그 기록")
+    p.add_argument("--company",  required=True)
+    p.add_argument("--fields",   required=True, help="JSON array of field names")
+    p.add_argument("--before",   default="{}")
+    p.add_argument("--after",    default="{}")
+    p.add_argument("--reason",   default="scheduled")
+    p.add_argument("--score",    type=float, default=0.0)
+    p.add_argument("--source",   default="CB Insights")
+    p.add_argument("--notes",    default="")
 
     args = parser.parse_args()
 
-    if args.command == "news":
-        write_news(
-            args.company, args.title, args.summary,
-            args.source, args.url, args.urgency,
-            json.loads(args.tags), args.raw, args.published
-        )
-    elif args.command == "list-companies":
+    if args.cmd == "news":
+        write_news(args.company, args.title, args.summary,
+                   args.source, args.url, args.urgency,
+                   json.loads(args.tags), args.raw, args.published)
+
+    elif args.cmd == "list-companies":
         for name in get_company_names():
             print(name)
-    elif args.command == 'generate-plan':
-        budget = int(args.budget) if hasattr(args, 'budget') and args.budget else 30
-        generate_plan(budget)
-    elif args.command == 'show-plan':
-        show_plan(args.date if hasattr(args, 'date') and args.date else None)
-    elif args.command == 'update-company':
-        update_company_field(args.company, args.field, args.value, args.source or 'agent')
-    elif args.command == 'score-companies':
-        calculate_priority_scores()
-    elif args.command == 'log-profile-update':
-        fields = json.loads(args.fields)
-        before = json.loads(args.before)
-        after = json.loads(args.after)
-        log_profile_update(args.company, fields, before, after, args.reason, args.source, args.notes or '')
-    elif args.command == 'log-run':
-        log_update_run(args.type, [], args.companies, args.news, [])
-        print(f"✅ 실행 로그 저장: {args.type} / 기업 {args.companies}개 / 뉴스 {args.news}건")
+
+    elif args.cmd == "score-companies":
+        calculate_priority_scores(print_results=True)
+
+    elif args.cmd == "generate-plan":
+        generate_plan(budget=args.budget, print_results=True)
+
+    elif args.cmd == "show-plan":
+        conn = get_conn()
+        row = conn.execute(
+            "SELECT * FROM company_update_plan WHERE plan_date=? ORDER BY id DESC LIMIT 1",
+            (date.today().isoformat(),)
+        ).fetchone()
+        conn.close()
+        if row:
+            plan = dict(row)
+            ordered = json.loads(plan["ordered_list"])
+            print(f"Plan for {plan['plan_date']}  budget: {plan['budget_used']}/{plan['budget_total']}")
+            for i, c in enumerate(ordered, 1):
+                name = c.get("company_name", "?")
+                print(f"  {i:>3}. {name:<35} score={c.get('score', 0):.2f}  {c.get('reason','')}")
+        else:
+            print("No plan for today. Run: python3 scripts/db_writer.py generate-plan")
+
+    elif args.cmd == "update-company":
+        update_company_field(args.company, args.field, args.value,
+                             source=args.source, reason=args.reason,
+                             log=not args.no_log)
+
+    elif args.cmd == "log-profile-update":
+        log_profile_update(
+            company_name   = args.company,
+            fields_updated = json.loads(args.fields),
+            before_values  = json.loads(args.before),
+            after_values   = json.loads(args.after),
+            reason         = args.reason,
+            priority_score = args.score,
+            source         = args.source,
+            notes          = args.notes,
+        )
+
     else:
         parser.print_help()

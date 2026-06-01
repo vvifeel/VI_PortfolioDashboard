@@ -179,7 +179,7 @@ export default function OverviewPage() {
             </h2>
             {activityData.todayPlan && (
               <span className="text-xs text-slate-400 dark:text-zinc-600">
-                오늘 {activityData.todayPlan.budget_used ?? 0}/{activityData.todayPlan.budget_total}콜 사용
+                오늘 {activityData.todayPlan.budget_used ?? 0}/{activityData.todayPlan.budget_total} 딥다이브
               </span>
             )}
           </div>

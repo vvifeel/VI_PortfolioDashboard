@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { Search, Filter, ChevronLeft, ChevronRight } from 'lucide-react';
@@ -31,7 +31,7 @@ interface ApiResponse {
 
 const STATUS_OPTIONS = ['', 'Alive', 'IPO', 'Acquired', 'Dead'];
 
-export default function PortfolioPage() {
+function PortfolioContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [data, setData] = useState<ApiResponse | null>(null);
@@ -215,5 +215,13 @@ export default function PortfolioPage() {
         )}
       </div>
     </div>
+  );
+}
+
+export default function PortfolioPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-slate-400 dark:text-zinc-500">로딩 중...</div>}>
+      <PortfolioContent />
+    </Suspense>
   );
 }

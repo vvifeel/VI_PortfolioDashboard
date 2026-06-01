@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { ArrowLeft, ExternalLink, DollarSign, Percent, FileText, Linkedin } from 'lucide-react';
+import { ArrowLeft, ExternalLink, DollarSign, Percent, FileText, Link2 } from 'lucide-react';
 import { getStatusStyle, getUrgencyDot, getUrgencyLabel, getUrgencyStyle, parseTags, TAG_STYLES, formatM, cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/Badge';
 import type { Company, Investment, NewsItem } from '@/lib/types';
@@ -128,7 +128,7 @@ export default async function CompanyDetailPage({
             {company.linkedin_url && (
               <a href={company.linkedin_url} target="_blank" rel="noopener noreferrer"
                 className="flex items-center gap-1.5 text-sm text-slate-500 dark:text-zinc-400 hover:text-sky-600 dark:hover:text-sky-400 hover:underline justify-end">
-                <Linkedin size={13} /> LinkedIn
+                <Link2 size={13} /> LinkedIn
               </a>
             )}
             {company.last_enriched_at && (

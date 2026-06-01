@@ -50,7 +50,7 @@ export default function OverviewCharts({ charts, onSectorClick, onRegionClick }:
             <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={90} />
             <Tooltip {...tooltipStyle} />
             <Bar dataKey="value" radius={[0, 3, 3, 0]} cursor="pointer"
-              onClick={(data) => onSectorClick?.(data.name)}>
+              onClick={(data) => onSectorClick?.(data.name as string)}>
               {sectorDist.slice(0, 12).map((_, i) => (
                 <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
               ))}
@@ -67,7 +67,7 @@ export default function OverviewCharts({ charts, onSectorClick, onRegionClick }:
             <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={70} />
             <Tooltip {...tooltipStyle} />
             <Bar dataKey="value" radius={[0, 3, 3, 0]} cursor="pointer"
-              onClick={(data) => onRegionClick?.(data.name)}>
+              onClick={(data) => onRegionClick?.(data.name as string)}>
               {regionDist.slice(0, 10).map((_, i) => (
                 <Cell key={i} fill={CHART_COLORS[(i + 4) % CHART_COLORS.length]} />
               ))}

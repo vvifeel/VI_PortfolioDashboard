@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Activity, Building2, Globe, LayoutGrid, TrendingUp, CheckCircle2, Zap, XCircle } from 'lucide-react';
+import { Activity, Building2, Globe, LayoutGrid, TrendingUp, CheckCircle2, Zap, XCircle, RefreshCw } from 'lucide-react';
 import OverviewCharts from '@/components/charts/OverviewCharts';
 import type { ChartData } from '@/lib/types';
 import { getUrgencyDot, getUrgencyStyle, getUrgencyLabel, cn } from '@/lib/utils';
@@ -45,6 +45,7 @@ export default function OverviewPage() {
   const [data, setData] = useState<{ kpis: Record<string, number>; charts: ChartData; recentNews: NewsItem[]; lastRun?: { run_at: string; news_collected: number } } | null>(null);
   const [yearFrom, setYearFrom] = useState('');
   const [loading, setLoading] = useState(true);
+  const [activityData, setActivityData] = useState<any>(null);
 
   const fetch_ = useCallback(async () => {
     setLoading(true);
@@ -57,6 +58,10 @@ export default function OverviewPage() {
   }, [yearFrom]);
 
   useEffect(() => { fetch_(); }, [fetch_]);
+
+  useEffect(() => {
+    fetch('/api/activity?limit=8&days=7').then(r => r.json()).then(setActivityData).catch(() => {});
+  }, []);
 
   const kpis = data?.kpis;
   const charts = data?.charts;
@@ -163,6 +168,62 @@ export default function OverviewPage() {
           </div>
         </div>
       </div>
+
+      {/* Activity Log */}
+      {activityData && activityData.updates.length > 0 && (
+        <div>
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-slate-700 dark:text-zinc-300 flex items-center gap-2">
+              <RefreshCw size={13} className="text-slate-400 dark:text-zinc-500" />
+              기업 프로파일 업데이트 활동
+            </h2>
+            {activityData.todayPlan && (
+              <span className="text-xs text-slate-400 dark:text-zinc-600">
+                오늘 {activityData.todayPlan.budget_used ?? 0}/{activityData.todayPlan.budget_total}콜 사용
+              </span>
+            )}
+          </div>
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-sm">
+            {activityData.updates.slice(0, 8).map((item: any, i: number) => {
+              const fields: string[] = JSON.parse(item.fields_updated ?? '[]');
+              const after: Record<string, unknown> = JSON.parse(item.after_values ?? '{}');
+              return (
+                <div key={i} className={cn(
+                  'px-4 py-3 flex items-start gap-3',
+                  i > 0 && 'border-t border-slate-100 dark:border-zinc-800'
+                )}>
+                  <div className="w-1.5 h-1.5 rounded-full bg-sky-400 mt-2 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <a href={`/portfolio/${encodeURIComponent(item.company_name)}`}
+                        className="text-sm font-medium text-sky-600 dark:text-sky-400 hover:underline">
+                        {item.company_name}
+                      </a>
+                      {fields.map((f: string) => (
+                        <span key={f} className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-500">
+                          {f}
+                        </span>
+                      ))}
+                      <span className="text-xs text-slate-400 dark:text-zinc-600 ml-auto">
+                        {item.source}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">{item.reason}</div>
+                    {Object.keys(after).length > 0 && (
+                      <div className="text-xs text-slate-400 dark:text-zinc-600 mt-0.5 font-mono truncate">
+                        {Object.entries(after).map(([k, v]) => `${k}: ${v}`).join(' · ')}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-slate-300 dark:text-zinc-700 shrink-0 mt-0.5">
+                    {new Date(item.updated_at).toLocaleDateString('ko-KR')}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

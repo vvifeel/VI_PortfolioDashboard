@@ -70,6 +70,12 @@ export async function GET(request: Request) {
     LIMIT 8
   `).all() as Array<{ company_name: string; one_line_summary?: string; urgency_level: number; tags: string; published_at?: string; source?: string }>;
 
+  const recentActivity = db.prepare(`
+    SELECT company_name, fields_updated, reason, source, updated_at
+    FROM company_update_log
+    ORDER BY updated_at DESC LIMIT 5
+  `).all();
+
   return NextResponse.json({
     kpis: {
       totalCompanies,
@@ -84,5 +90,6 @@ export async function GET(request: Request) {
     charts: { sectorDist, regionDist, vintageDist, roundDist, statusDist, typeDist },
     lastRun,
     recentNews,
+    recentActivity,
   });
 }

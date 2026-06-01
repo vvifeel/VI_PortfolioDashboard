@@ -4,14 +4,12 @@ import {
   ResponsiveContainer, Legend
 } from 'recharts';
 import { CHART_COLORS } from '@/lib/utils';
+import type { ChartData } from '@/lib/types';
 
-interface ChartData {
-  sectorDist: Array<{ name: string; value: number }>;
-  regionDist: Array<{ name: string; value: number }>;
-  vintageDist: Array<{ year: number; count: number }>;
-  roundDist: Array<{ name: string; value: number }>;
-  statusDist: Array<{ name: string; value: number }>;
-  typeDist: Array<{ name: string; value: number }>;
+interface Props {
+  charts: ChartData;
+  onSectorClick?: (sector: string) => void;
+  onRegionClick?: (region: string) => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -26,19 +24,19 @@ const TYPE_COLORS = ['#38bdf8', '#fbbf24'];
 
 function ChartCard({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-5">
-      <h3 className="text-sm font-medium text-zinc-300 mb-4">{title}</h3>
+    <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 shadow-sm">
+      <h3 className="text-sm font-medium text-slate-600 dark:text-zinc-300 mb-4">{title}</h3>
       {children}
     </div>
   );
 }
 
 const tooltipStyle = {
-  contentStyle: { background: '#18181b', border: '1px solid #3f3f46', borderRadius: '8px', color: '#e4e4e7', fontSize: '12px' },
-  cursor: { fill: 'rgba(255,255,255,0.04)' },
+  contentStyle: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: '8px', fontSize: '12px', color: '#0f172a' },
+  cursor: { fill: 'rgba(0,0,0,0.04)' },
 };
 
-export default function OverviewCharts({ charts }: { charts: ChartData }) {
+export default function OverviewCharts({ charts, onSectorClick, onRegionClick }: Props) {
   const { sectorDist, regionDist, vintageDist, roundDist, statusDist, typeDist } = charts;
 
   return (
@@ -48,10 +46,11 @@ export default function OverviewCharts({ charts }: { charts: ChartData }) {
       <ChartCard title="섹터 분포 (Top 12)">
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={sectorDist.slice(0, 12)} layout="vertical" margin={{ left: 4, right: 16 }}>
-            <XAxis type="number" tick={{ fontSize: 11, fill: '#71717a' }} axisLine={false} tickLine={false} />
-            <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: '#a1a1aa' }} axisLine={false} tickLine={false} width={90} />
+            <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={90} />
             <Tooltip {...tooltipStyle} />
-            <Bar dataKey="value" radius={[0, 3, 3, 0]}>
+            <Bar dataKey="value" radius={[0, 3, 3, 0]} cursor="pointer"
+              onClick={(data) => onSectorClick?.(data.name)}>
               {sectorDist.slice(0, 12).map((_, i) => (
                 <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />
               ))}
@@ -64,10 +63,11 @@ export default function OverviewCharts({ charts }: { charts: ChartData }) {
       <ChartCard title="지역 분포 (Top 10)">
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={regionDist.slice(0, 10)} layout="vertical" margin={{ left: 4, right: 16 }}>
-            <XAxis type="number" tick={{ fontSize: 11, fill: '#71717a' }} axisLine={false} tickLine={false} />
-            <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: '#a1a1aa' }} axisLine={false} tickLine={false} width={70} />
+            <XAxis type="number" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <YAxis dataKey="name" type="category" tick={{ fontSize: 11, fill: '#64748b' }} axisLine={false} tickLine={false} width={70} />
             <Tooltip {...tooltipStyle} />
-            <Bar dataKey="value" radius={[0, 3, 3, 0]}>
+            <Bar dataKey="value" radius={[0, 3, 3, 0]} cursor="pointer"
+              onClick={(data) => onRegionClick?.(data.name)}>
               {regionDist.slice(0, 10).map((_, i) => (
                 <Cell key={i} fill={CHART_COLORS[(i + 4) % CHART_COLORS.length]} />
               ))}
@@ -80,8 +80,8 @@ export default function OverviewCharts({ charts }: { charts: ChartData }) {
       <ChartCard title="투자 빈티지 (연도별)">
         <ResponsiveContainer width="100%" height={240}>
           <BarChart data={vintageDist} margin={{ left: -16, right: 8 }}>
-            <XAxis dataKey="year" tick={{ fontSize: 11, fill: '#71717a' }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 11, fill: '#71717a' }} axisLine={false} tickLine={false} />
+            <XAxis dataKey="year" tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+            <YAxis tick={{ fontSize: 11, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
             <Tooltip {...tooltipStyle} formatter={(v) => [v, '투자 건수']} />
             <Bar dataKey="count" fill="#38bdf8" radius={[3, 3, 0, 0]} />
           </BarChart>
@@ -100,7 +100,7 @@ export default function OverviewCharts({ charts }: { charts: ChartData }) {
             </Pie>
             <Tooltip {...tooltipStyle} />
             <Legend
-              formatter={(v) => <span style={{ fontSize: 11, color: '#a1a1aa' }}>{v}</span>}
+              formatter={(v) => <span style={{ fontSize: 11, color: '#64748b' }}>{v}</span>}
               iconSize={8} iconType="circle"
             />
           </PieChart>
@@ -119,7 +119,7 @@ export default function OverviewCharts({ charts }: { charts: ChartData }) {
             </Pie>
             <Tooltip {...tooltipStyle} />
             <Legend
-              formatter={(v) => <span style={{ fontSize: 11, color: '#a1a1aa' }}>{v}</span>}
+              formatter={(v) => <span style={{ fontSize: 11, color: '#64748b' }}>{v}</span>}
               iconSize={8} iconType="circle"
             />
           </PieChart>
@@ -138,7 +138,7 @@ export default function OverviewCharts({ charts }: { charts: ChartData }) {
             </Pie>
             <Tooltip {...tooltipStyle} />
             <Legend
-              formatter={(v) => <span style={{ fontSize: 11, color: '#a1a1aa' }}>{v}</span>}
+              formatter={(v) => <span style={{ fontSize: 11, color: '#64748b' }}>{v}</span>}
               iconSize={8} iconType="circle"
             />
           </PieChart>

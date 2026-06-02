@@ -2,15 +2,14 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Building2, Newspaper, Upload, ChevronRight, Zap, BarChart3
+  Building2, Newspaper, Upload, ChevronRight, Zap
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ThemeToggle from '@/components/ThemeToggle';
 
 const NAV = [
-  { href: '/portfolio', label: '포트폴리오',  icon: Building2 },
-  { href: '/overview',  label: '분석 · 통계', icon: BarChart3 },
-  { href: '/news',      label: '뉴스 피드',   icon: Newspaper },
+  { href: '/portfolio', label: '포트폴리오 · 분석', icon: Building2 },
+  { href: '/news',      label: '뉴스 피드',          icon: Newspaper },
 ];
 const SETTINGS_NAV = [
   { href: '/settings/intelligence', label: '인텔리전스 설정', icon: Zap },
@@ -20,7 +19,7 @@ const SETTINGS_NAV = [
 export default function Sidebar() {
   const path = usePathname();
   return (
-    <aside className="w-56 shrink-0 border-r border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex flex-col h-screen sticky top-0">
+    <aside className="w-52 shrink-0 border-r border-slate-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 flex flex-col h-screen sticky top-0">
       <div className="px-5 py-5 border-b border-slate-200 dark:border-zinc-800">
         <div className="text-sm font-semibold text-slate-800 dark:text-zinc-100 tracking-tight">VI Portfolio</div>
         <div className="text-xs text-slate-400 dark:text-zinc-500 mt-0.5">Intelligence Dashboard</div>
@@ -31,13 +30,13 @@ export default function Sidebar() {
           <Link key={href} href={href}
             className={cn(
               'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors',
-              path === href || (href !== '/overview' && path.startsWith(href))
+              path === href || path.startsWith(href + '/')
                 ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium'
                 : 'text-slate-500 dark:text-zinc-400 hover:text-slate-800 dark:hover:text-zinc-100 hover:bg-slate-100 dark:hover:bg-zinc-800/60'
             )}>
             <Icon size={15} />
             <span>{label}</span>
-            {(path === href || path.startsWith(href + '/')) && href !== '/overview' && (
+            {(path === href || path.startsWith(href + '/')) && (
               <ChevronRight size={12} className="ml-auto opacity-50" />
             )}
           </Link>

@@ -39,8 +39,6 @@ export async function GET(request: NextRequest) {
 
   const total = (db.prepare(`SELECT COUNT(*) as n FROM companies c ${where}`).get(...params) as { n: number }).n;
 
-  // Sort: signal/news update time first (most recently active companies at top),
-  // then by urgency, then alphabetical
   const rows = db.prepare(`
     SELECT
       c.company_name,
@@ -59,14 +57,33 @@ export async function GET(request: NextRequest) {
       c.current_employee_count,
       c.total_funding_external_m,
       c.latest_external_round,
+      c.description,
       (SELECT tags FROM news_items
        WHERE company_name = c.company_name
        ORDER BY urgency_level DESC, collected_at DESC LIMIT 1) as latest_news_tags,
       (SELECT MAX(collected_at) FROM news_items
        WHERE company_name = c.company_name) as last_news_collected_at,
       (SELECT COUNT(*) FROM portfolio_investments
-       WHERE company_name = c.company_name) as investment_count
+       WHERE company_name = c.company_name) as investment_count,
+      li.investment_type,
+      li.investment_year  AS inv_year,
+      li.investment_month AS inv_month,
+      li.investment_amount_m,
+      li.stake_pct,
+      li.round            AS inv_round,
+      li.round_total_m,
+      li.valuation_at_investment_m,
+      li.current_valuation_m,
+      li.investment_terms,
+      li.portfolio_manager
     FROM companies c
+    LEFT JOIN portfolio_investments li
+      ON li.company_name = c.company_name
+      AND li.id = (
+        SELECT id FROM portfolio_investments
+        WHERE company_name = c.company_name
+        ORDER BY investment_year DESC, id DESC LIMIT 1
+      )
     ${where}
     ORDER BY
       COALESCE(c.signal_updated_at,

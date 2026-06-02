@@ -25,6 +25,21 @@ scripts/
 .claude/prompts/
   daily_update.md              # 일일 업데이트 실행 프롬프트 (Phase 0~3)
 dashboard/                     # Next.js 대시보드 (포트 3000)
+  src/app/
+    overview/page.tsx          # KPI + 차트 6종 + 뉴스 패널
+    portfolio/page.tsx         # 기업 리스트 (필터 + 차트)
+    portfolio/[company]/page.tsx  # 기업 상세
+    news/page.tsx              # 뉴스 피드
+    settings/
+      intelligence/page.tsx   # 파이프라인 설정
+      sources/page.tsx         # 모니터링 소스 CRUD
+      import/page.tsx          # Excel import UI
+  src/components/
+    charts/
+      OverviewCharts.tsx       # 차트 6종 (섹터 TopN바, 지역 버블맵 등)
+      RegionBubbleMap.tsx      # 세계지도 + 버블 오버레이 (d3-geo + ResizeObserver)
+      SectorTreemap.tsx        # (미사용) — OverviewCharts의 TopNBarSection으로 대체됨
+    SignalRadar.tsx             # 우측 사이드바 시그널 패널
 ```
 
 ---
@@ -135,12 +150,96 @@ Phase 3: 보고 (처리 요약 출력 + update_log 저장)
 | 경로 | 설명 |
 |------|------|
 | `/overview` | KPI 8종, 차트 6종, 뉴스 패널, 프로파일 업데이트 활동 로그 |
-| `/portfolio` | 기업 리스트 (검색, 섹터/지역/라운드/상태 필터) |
-| `/portfolio/[company]` | 기업 상세 (hero 헤더, CB Insights 필드, 뉴스 히스토리) |
+| `/portfolio` | 기업 리스트 (검색, 섹터/지역/라운드/상태 필터 + 인라인 범위슬라이더) |
+| `/portfolio/[company]` | 기업 상세 (hero 헤더 + 메타 그리드, 투자내역, 재무/펀딩, 시장/경쟁, 뉴스 타임라인) |
 | `/news` | 뉴스 피드 (긴급도/태그 필터, 슬라이드 드로어) |
 | `/settings/intelligence` | 파이프라인 설정, 수집 트리거, 티어 드래그&드랍 배정 |
 | `/settings/sources` | 모니터링 소스 CRUD |
 | `/settings/import` | Excel import UI |
+
+---
+
+## 대시보드 UI 상세 — portfolio/page.tsx
+
+### CompanyRow 컬럼 레이아웃
+
+| 컬럼 | 너비 | 내용 |
+|------|------|------|
+| Col 1 기업명·지역 | `w-64` | 1행: 티어배지 + 기업명 + 지역버튼 / 2행: 상태배지 + 설립연도 + 본사도시 |
+| Col 2 섹터·소개 | `flex-1` | 섹터 pill + 설명 텍스트 한 줄 (flex-row, truncate) |
+| Col 3 투자내역 | `w-44` | 건수버튼(클릭 펼치기, ChevronDown) + 총투자금 + 지분% |
+| Col 4 기업가치 | `w-40` | 당시가치 / 현재가치 / 등락률 |
+| Col 5 시그널 | `flex-1` | 긴급도 아이콘 + 시그널 텍스트 + 날짜 |
+
+- 건수 클릭 → 해당 행 바로 아래에 전체 폭 투자내역 테이블 펼침 (investment_terms 미잘림)
+- `formatM` / `invFmt`: 소수점 2자리 표시 (`$1.50B`, `$25.00M`)
+
+### 필터바
+
+- 검색창 + 섹터/지역/라운드/상태 드롭다운 + 티어 버튼그룹이 한 줄로 연속 배치
+- **범위 슬라이더(투자금액·지분율·기업가치) 항상 인라인 표시** — 토글 버튼 없음
+  - 슬라이더 값 라벨 클릭 → 숫자 직접 입력 가능
+  - 하한 핸들 z-index 버그 수정: lo가 min일 때 loZ=5로 강제
+- 활성 필터 chip은 필터바 하단에 표시, 차트 필터 초기화 버튼은 **좌측** 배치
+
+### 차트 (OverviewCharts.tsx)
+
+- 섹터분포: **TopNBarSection** — 상위 7개 수평 바차트 + 하단 나머지 항목 인라인 칩
+  - `SectorTreemap`은 미사용 (파일은 남아 있음)
+- 지역분포: **RegionBubbleMap** — 세계지도(naturalEarth1) + 절대위치 SVG 버블 오버레이
+  - d3-geo `geoNaturalEarth1().scale(130).translate([w*0.5, h*0.54])` 로 외부에서 직접 프로젝션 계산
+  - `overflow: hidden` + 경계 밖 버블 클리핑으로 프레임 이탈 방지
+  - 각 버블에 `key={name_idx}` 고유키 부여 (React key 경고 해결)
+- 크로스필터: 각 차트는 자신의 차원 필터를 제외한 `rowsForX`를 데이터소스로 사용
+  → 한 차트를 클릭해도 해당 차트의 분포는 그대로 유지
+
+---
+
+## 대시보드 UI 상세 — portfolio/[company]/page.tsx
+
+### Hero 헤더 구성
+
+1. 기업명 + 상태배지 + 티어배지
+2. 한글기업명 (있을 경우)
+3. 섹터 / 서브섹터 / 지역 / 설립연도 / 비즈니스스테이지 태그
+4. 우측: 웹사이트 / LinkedIn / Crunchbase 링크
+5. 빠른 통계바: 직원수, 총 펀딩, 최신 라운드, 시장포지션, 추정매출
+6. 기업 소개 (description)
+7. **메타 그리드** (description 아래, border-top 구분선):
+   - Founded · Status · CEO · Revenue 2026 · Website · HQ · Valuation
+   - 각 항목: 10px uppercase 라벨 + 14px 값 (없으면 `—`)
+   - Website는 `<a>` 링크, 프로토콜 제거 표시
+8. 인텔리전스 시그널 박스 (있을 경우)
+
+### 콘텐츠 섹션
+
+| 섹션 | 비고 |
+|------|------|
+| 투자 내역 | 라운드별 투자금/지분/가치/조건 상세 |
+| 재무·펀딩 | 외부 펀딩, ARR, 번레이트, 투자자 목록 |
+| 시장·경쟁 | 시장규모, 경쟁사, 기술스택 |
+| 뉴스 타임라인 | 긴급도별 뉴스 카드 |
+
+> **팀·경영진 섹션은 제거됨** — CEO 등 임원 정보는 hero 메타 그리드에서 표시
+
+---
+
+## 기술 스택 메모
+
+| 항목 | 내용 |
+|------|------|
+| Next.js | 16 (App Router, TypeScript, `'use client'` 필수) |
+| 스타일 | Tailwind CSS v4 |
+| 차트 | Recharts v3 (바/라인), @nivo/geo (세계지도) |
+| 지도 프로젝션 | d3-geo `geoNaturalEarth1()` — @nivo/geo custom layer로 프로젝션 함수 전달 불가, ResizeObserver + 외부 계산 + 절대위치 SVG 방식 사용 |
+| DB | SQLite + better-sqlite3 |
+
+### @nivo/geo 주의사항
+
+- `ResponsiveGeoMap`의 `layers` prop에 커스텀 레이어를 넣어도 내부 d3-geo projection 함수를 받을 수 없음
+- 해결책: `ResizeObserver`로 컨테이너 크기 추적 → `geoNaturalEarth1().scale(130).translate([w*0.5, h*0.54])` 로 직접 프로젝션 계산 → `position: absolute` SVG 오버레이로 버블 렌더링
+
+---
 
 ## 대시보드 실행
 

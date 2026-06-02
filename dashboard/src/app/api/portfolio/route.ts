@@ -65,6 +65,27 @@ export async function GET(request: NextRequest) {
        WHERE company_name = c.company_name) as last_news_collected_at,
       (SELECT COUNT(*) FROM portfolio_investments
        WHERE company_name = c.company_name) as investment_count,
+      -- All investments as JSON array (chronological order)
+      (SELECT json_group_array(json_object(
+        'id', pi2.id,
+        'round', pi2.round,
+        'investment_year', pi2.investment_year,
+        'investment_month', pi2.investment_month,
+        'investment_type', pi2.investment_type,
+        'investment_amount_m', pi2.investment_amount_m,
+        'stake_pct', pi2.stake_pct,
+        'valuation_at_investment_m', pi2.valuation_at_investment_m,
+        'current_valuation_m', pi2.current_valuation_m,
+        'investment_terms', pi2.investment_terms,
+        'round_total_m', pi2.round_total_m
+      ))
+      FROM (SELECT * FROM portfolio_investments
+            WHERE company_name = c.company_name
+            ORDER BY investment_year ASC, id ASC) pi2
+      ) as investments_json,
+      COALESCE((SELECT SUM(investment_amount_m) FROM portfolio_investments
+                WHERE company_name = c.company_name), 0) as total_investment_m,
+      -- Latest investment fields (for client-side filtering)
       li.investment_type,
       li.investment_year  AS inv_year,
       li.investment_month AS inv_month,
@@ -92,12 +113,19 @@ export async function GET(request: NextRequest) {
       c.latest_urgency DESC NULLS LAST,
       c.company_name ASC
     LIMIT ? OFFSET ?
-  `).all(...params, limit, offset);
+  `).all(...params, limit, offset) as Array<Record<string, unknown>>;
 
-  // Filter options for sidebar
+  // Parse investments JSON for each row
+  const processedRows = rows.map(r => ({
+    ...r,
+    investments: r.investments_json ? JSON.parse(r.investments_json as string) : [],
+    investments_json: undefined,
+  }));
+
+  // Filter options for dropdowns
   const sectors = (db.prepare('SELECT DISTINCT sector FROM companies WHERE sector IS NOT NULL ORDER BY sector').all() as Array<{sector: string}>).map(r => r.sector);
   const regions = (db.prepare('SELECT DISTINCT region FROM companies WHERE region IS NOT NULL ORDER BY region').all() as Array<{region: string}>).map(r => r.region);
   const rounds  = (db.prepare('SELECT DISTINCT round FROM portfolio_investments WHERE round IS NOT NULL ORDER BY round').all() as Array<{round: string}>).map(r => r.round);
 
-  return NextResponse.json({ data: rows, total, page, limit, sectors, regions, rounds });
+  return NextResponse.json({ data: processedRows, total, page, limit, sectors, regions, rounds });
 }

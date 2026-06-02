@@ -1,11 +1,7 @@
 'use client';
-import { useMemo } from 'react';
+import { useMemo, useRef, useState, useEffect } from 'react';
 import { ResponsiveGeoMap } from '@nivo/geo';
-import type React from 'react';
-
-// @nivo/geo type declarations omit `layers` even though the runtime supports it
-type GeoMapAny = React.ComponentType<React.ComponentProps<typeof ResponsiveGeoMap> & { layers?: unknown[] }>; // eslint-disable-line @typescript-eslint/no-explicit-any
-const GeoMap = ResponsiveGeoMap as GeoMapAny;
+import { geoNaturalEarth1 } from 'd3-geo';
 import { feature } from 'topojson-client';
 import worldTopo from 'world-atlas/countries-110m.json';
 import { CHART_COLORS } from '@/lib/utils';
@@ -43,62 +39,60 @@ interface Props {
   height?: number;
 }
 
-const worldFeatures = feature(worldTopo, worldTopo.objects.countries).features;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const worldFeatures = feature(worldTopo, worldTopo.objects.countries).features as any[];
 
 export default function RegionBubbleMap({ data, activeItem, onClick, height = 220 }: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [dims, setDims] = useState({ w: 0, h: 0 });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const obs = new ResizeObserver(entries => {
+      const r = entries[0].contentRect;
+      setDims({ w: r.width, h: r.height });
+    });
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, []);
+
   const maxValue = Math.max(1, ...data.map(d => d.value));
 
-  // colorMap stable across renders based on sorted order
   const colorMap = useMemo(
     () => Object.fromEntries([...data].sort((a, b) => b.value - a.value).map((d, i) => [d.name, CHART_COLORS[i % CHART_COLORS.length]])),
     [data],
   );
 
-  // Build custom bubble layer as a render function (closure captures latest props)
-  const bubbleLayer = useMemo(() => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return ({ projection }: { projection: (c: [number, number]) => [number, number] | null }) => (
-      <g>
-        {data.map(d => {
-          const centroid = CENTROIDS[d.name];
-          if (!centroid) return null;
-          const pt = projection(centroid);
-          if (!pt) return null;
-          const [x, y] = pt;
-          const r = Math.max(7, (d.value / maxValue) * 28 + 4);
-          const dimmed = !!(activeItem && d.name !== activeItem);
-          const color = colorMap[d.name] ?? '#94a3b8';
-          return (
-            <g key={d.name} onClick={() => onClick?.(d.name)} style={{ cursor: 'pointer' }}>
-              <title>{d.name}: {d.value}개</title>
-              <circle cx={x} cy={y} r={r}
-                fill={dimmed ? '#cbd5e1' : color}
-                opacity={dimmed ? 0.3 : 0.82}
-                stroke="#fff" strokeWidth={1.5}
-              />
-              {r >= 12 && (
-                <text x={x} y={y + 0.5}
-                  textAnchor="middle" dominantBaseline="middle"
-                  fontSize={Math.min(10, r * 0.62)} fill="#fff" fontWeight={700}
-                  style={{ pointerEvents: 'none', userSelect: 'none' }}>
-                  {d.value}
-                </text>
-              )}
-            </g>
-          );
-        })}
-      </g>
-    );
-  }, [data, activeItem, onClick, maxValue, colorMap]);
+  // Build projection matching GeoMap's settings (naturalEarth1, scale 145, translation [0.5, 0.56])
+  const bubbles = useMemo(() => {
+    if (!dims.w || !dims.h) return [];
+    const proj = geoNaturalEarth1()
+      .scale(145)
+      .translate([dims.w * 0.5, dims.h * 0.56])
+      .rotate([0, 0, 0]);
 
-  // Legend (countries with no centroid are listed below map)
+    return data.map(d => {
+      const centroid = CENTROIDS[d.name];
+      if (!centroid) return null;
+      const pt = proj(centroid);
+      if (!pt) return null;
+      const [x, y] = pt;
+      const r = Math.max(7, (d.value / maxValue) * 28 + 4);
+      const dimmed = !!(activeItem && d.name !== activeItem);
+      const color = colorMap[d.name] ?? '#94a3b8';
+      return { name: d.name, value: d.value, x, y, r, dimmed, color };
+    }).filter(Boolean) as { name: string; value: number; x: number; y: number; r: number; dimmed: boolean; color: string }[];
+  }, [dims, data, activeItem, maxValue, colorMap]);
+
   const missing = data.filter(d => !CENTROIDS[d.name]);
 
   return (
     <div>
-      <div style={{ height }}>
-        <GeoMap
-          features={worldFeatures as any} // eslint-disable-line @typescript-eslint/no-explicit-any
+      <div ref={containerRef} style={{ height, position: 'relative' }}>
+        {/* Base world map */}
+        <ResponsiveGeoMap
+          features={worldFeatures}
           margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
           projectionType="naturalEarth1"
           projectionScale={145}
@@ -108,12 +102,40 @@ export default function RegionBubbleMap({ data, activeItem, onClick, height = 22
           borderWidth={0.4}
           borderColor="#c8d3db"
           enableGraticule={false}
-          layers={['features', bubbleLayer]}
           isInteractive={false}
         />
+
+        {/* Bubble overlay — absolutely positioned SVG, projection matches GeoMap */}
+        {dims.w > 0 && (
+          <svg
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}
+          >
+            {bubbles.map(b => (
+              <g key={b.name} onClick={() => onClick?.(b.name)} style={{ cursor: 'pointer' }}>
+                <title>{b.name}: {b.value}개</title>
+                <circle
+                  cx={b.x} cy={b.y} r={b.r}
+                  fill={b.dimmed ? '#cbd5e1' : b.color}
+                  opacity={b.dimmed ? 0.3 : 0.82}
+                  stroke="#fff" strokeWidth={1.5}
+                />
+                {b.r >= 12 && (
+                  <text
+                    x={b.x} y={b.y + 0.5}
+                    textAnchor="middle" dominantBaseline="middle"
+                    fontSize={Math.min(10, b.r * 0.62)} fill="#fff" fontWeight={700}
+                    style={{ pointerEvents: 'none', userSelect: 'none' }}
+                  >
+                    {b.value}
+                  </text>
+                )}
+              </g>
+            ))}
+          </svg>
+        )}
       </div>
 
-      {/* Legend row */}
+      {/* Legend */}
       <div className="flex flex-wrap gap-x-3 gap-y-0.5 justify-center px-1 mt-1">
         {[...data].sort((a, b) => b.value - a.value).map(d => {
           const dimmed = !!(activeItem && d.name !== activeItem);
@@ -122,8 +144,7 @@ export default function RegionBubbleMap({ data, activeItem, onClick, height = 22
               onClick={() => onClick?.(d.name)}
               className="flex items-center gap-1 text-[9px] text-slate-500 dark:text-zinc-500 hover:text-slate-700 transition-colors"
               style={{ opacity: dimmed ? 0.35 : 1 }}>
-              <span className="w-2 h-2 rounded-full shrink-0"
-                style={{ background: colorMap[d.name] ?? '#94a3b8' }} />
+              <span className="w-2 h-2 rounded-full shrink-0" style={{ background: colorMap[d.name] ?? '#94a3b8' }} />
               {d.name}
               <span className="text-slate-400 dark:text-zinc-600">{d.value}</span>
             </button>

@@ -7,7 +7,6 @@ import {
 import { CHART_COLORS } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import type { ChartData } from '@/lib/types';
-import SectorTreemap from './SectorTreemap';
 import RegionBubbleMap from './RegionBubbleMap';
 
 interface Props {
@@ -247,6 +246,90 @@ function BarSection({
   );
 }
 
+function TopNBarSection({
+  data, activeItem, onClick, topN = 7,
+}: {
+  data: Array<{ name: string; value: number }>;
+  activeItem?: string;
+  onClick?: (name: string) => void;
+  topN?: number;
+}) {
+  const sorted = [...data].sort((a, b) => b.value - a.value);
+  const total = sorted.reduce((s, d) => s + d.value, 0);
+  const top = sorted.slice(0, topN);
+  const rest = sorted.slice(topN);
+
+  if (sorted.length === 0) {
+    return <div className="h-20 flex items-center justify-center text-xs text-slate-300 dark:text-zinc-700">데이터 없음</div>;
+  }
+
+  const maxLabelLen = Math.max(4, ...top.map(d => d.name.length));
+  const yWidth = Math.min(160, Math.max(60, maxLabelLen * 6.5));
+  const chartHeight = Math.max(80, top.length * 26 + 10);
+
+  return (
+    <div>
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <BarChart data={top} layout="vertical" margin={{ left: 0, right: 28, top: 0, bottom: 0 }}>
+          <XAxis type="number" tick={{ fontSize: 9, fill: '#94a3b8' }} axisLine={false} tickLine={false} />
+          <YAxis dataKey="name" type="category" width={yWidth}
+            tick={{ fontSize: 9.5, fill: '#64748b' }} axisLine={false} tickLine={false} />
+          <Tooltip {...TS}
+            formatter={(value, _name, props) => {
+              const pct = total > 0 ? ((Number(value) / total) * 100).toFixed(0) : '?';
+              return [`${value}개 (${pct}%)`, String((props.payload as any).name)]; // eslint-disable-line @typescript-eslint/no-explicit-any
+            }}
+          />
+          <Bar dataKey="value" radius={[0, 3, 3, 0]} cursor="pointer"
+            onClick={(d: any) => onClick?.(d.name)}> {/* eslint-disable-line @typescript-eslint/no-explicit-any */}
+            {top.map((entry, i) => {
+              const dimmed = !!(activeItem && entry.name !== activeItem);
+              return (
+                <Cell key={entry.name}
+                  fill={dimmed ? DIM_COLOR : CHART_COLORS[i % CHART_COLORS.length]}
+                  opacity={dimmed ? 0.35 : 1}
+                />
+              );
+            })}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+
+      {rest.length > 0 && (
+        <div className="mt-1.5 px-0.5">
+          <div className="h-[4px] w-full flex rounded-full overflow-hidden mb-1.5">
+            {sorted.map((d, i) => {
+              const pct = total > 0 ? (d.value / total * 100) : 0;
+              const dimmed = !!(activeItem && d.name !== activeItem);
+              return (
+                <div key={d.name}
+                  style={{ width: `${pct}%`, background: dimmed ? DIM_COLOR : CHART_COLORS[i % CHART_COLORS.length], opacity: dimmed ? 0.3 : 1 }}
+                  title={`${d.name}: ${d.value}`}
+                />
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-x-2 gap-y-0.5">
+            {rest.map((entry, i) => {
+              const dimmed = !!(activeItem && entry.name !== activeItem);
+              return (
+                <button key={entry.name} onClick={() => onClick?.(entry.name)}
+                  className="flex items-center gap-0.5 text-[9px] text-slate-500 dark:text-zinc-500 hover:text-slate-700 dark:hover:text-zinc-300 transition-colors"
+                  style={{ opacity: dimmed ? 0.35 : 1 }}>
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0"
+                    style={{ background: CHART_COLORS[(topN + i) % CHART_COLORS.length] }} />
+                  {entry.name}
+                  <span className="text-slate-400 dark:text-zinc-600 ml-0.5">{entry.value}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Main export ────────────────────────────────────────────────────────────────
 export default function OverviewCharts({
   charts, crossFilter,
@@ -275,7 +358,7 @@ export default function OverviewCharts({
   return (
     <div className="space-y-2">
       {hasAnyFilter && onClearAll && (
-        <div className="flex justify-end">
+        <div className="flex justify-start">
           <button onClick={onClearAll}
             className="flex items-center gap-1 text-[11px] font-medium text-sky-600 dark:text-sky-400 hover:text-sky-800 dark:hover:text-sky-200 bg-sky-50 dark:bg-sky-500/10 border border-sky-200 dark:border-sky-500/30 px-2.5 py-1 rounded-full transition-colors">
             ✕ 필터 초기화 (전체 보기)
@@ -286,7 +369,7 @@ export default function OverviewCharts({
       <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
 
         <ChartCard title={`섹터 분포${activeSector ? ` · ${activeSector}` : ''}`} active={!!activeSector}>
-          <SectorTreemap data={sectorData} activeItem={activeSector} onClick={onSectorClick} height={220} />
+          <TopNBarSection data={sectorData} activeItem={activeSector} onClick={onSectorClick} />
         </ChartCard>
 
         <ChartCard title={`지역 분포${activeRegion ? ` · ${activeRegion}` : ''}`} active={!!activeRegion}>

@@ -285,6 +285,42 @@ export default async function CompanyDetailPage({
           <p className="text-base text-slate-600 dark:text-zinc-300 mt-5 leading-relaxed max-w-3xl">{company.description}</p>
         )}
 
+        {/* Meta fields grid */}
+        {(() => {
+          const latestInv = investments[investments.length - 1];
+          const valuation = latestInv?.current_valuation_m ?? company.latest_external_valuation_m;
+          const metaItems = [
+            { label: 'Founded', value: company.founded_year ? String(company.founded_year) : null },
+            { label: 'Status', value: company.status ?? null },
+            { label: 'CEO', value: company.ceo_name ?? null },
+            { label: 'Revenue 2026', value: company.revenue_range ?? null },
+            { label: 'Website', value: company.website ?? null, isUrl: true },
+            { label: 'HQ', value: company.hq_city ? `${company.hq_city}${company.region ? `, ${company.region}` : ''}` : (company.region ?? null) },
+            { label: 'Valuation', value: valuation ? formatM(valuation) : null },
+          ] as Array<{ label: string; value: string | null; isUrl?: boolean }>;
+          return (
+            <div className="mt-5 pt-4 border-t border-slate-100 dark:border-zinc-800 flex flex-wrap gap-x-6 gap-y-3">
+              {metaItems.map(item => (
+                <div key={item.label} className="flex flex-col gap-0.5 min-w-0">
+                  <span className="text-[10px] text-slate-400 dark:text-zinc-500 uppercase tracking-wider font-medium">{item.label}</span>
+                  {item.value ? (
+                    item.isUrl ? (
+                      <a href={item.value} target="_blank" rel="noopener noreferrer"
+                        className="text-sm text-sky-600 dark:text-sky-400 hover:underline truncate max-w-[160px]">
+                        {item.value.replace(/^https?:\/\//, '').replace(/\/$/, '')}
+                      </a>
+                    ) : (
+                      <span className="text-sm text-slate-700 dark:text-zinc-200 font-medium">{item.value}</span>
+                    )
+                  ) : (
+                    <span className="text-sm text-slate-300 dark:text-zinc-700">—</span>
+                  )}
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+
         {/* Signal summary */}
         {company.signal_summary && (
           <div className="mt-4 px-4 py-3 bg-sky-50 dark:bg-sky-500/5 border border-sky-200/60 dark:border-sky-500/20 rounded-xl">
@@ -405,97 +441,33 @@ export default async function CompanyDetailPage({
         </Section>
       </div>
 
-      {/* Team + Market row */}
-      {(hasTeamData || hasMarketData) && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          {/* Team */}
-          {hasTeamData && (
-            <Section title="팀 · 경영진">
-              <div className="space-y-2">
-                {company.ceo_name && (
-                  <div className="flex items-center justify-between py-1.5">
-                    <div>
-                      <div className="text-xs text-slate-400 dark:text-zinc-500">CEO</div>
-                      <div className="text-sm font-medium text-slate-800 dark:text-zinc-200">{company.ceo_name}</div>
-                    </div>
-                    {company.ceo_linkedin && (
-                      <a href={company.ceo_linkedin} target="_blank" rel="noopener noreferrer"
-                        className="text-xs text-sky-600 dark:text-sky-400 hover:underline flex items-center gap-1">
-                        <Link2 size={11} /> LinkedIn
-                      </a>
-                    )}
-                  </div>
-                )}
-                {company.cto_name && <Field label="CTO" value={company.cto_name} />}
-                {company.cfo_name && <Field label="CFO" value={company.cfo_name} />}
-                {company.cofounders && <Field label="Co-Founders" value={company.cofounders} />}
-                {keyExecs.length > 0 && (
-                  <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">
-                    <div className="text-xs text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">Key Executives</div>
-                    <div className="space-y-1.5">
-                      {keyExecs.map((ex, i) => (
-                        <div key={i} className="flex items-center justify-between text-sm">
-                          <div>
-                            <span className="font-medium text-slate-700 dark:text-zinc-300">{ex.name}</span>
-                            <span className="text-xs text-slate-400 dark:text-zinc-500 ml-2">{ex.title}</span>
-                          </div>
-                          {ex.linkedin && (
-                            <a href={ex.linkedin} target="_blank" rel="noopener noreferrer"
-                              className="text-xs text-sky-600/60 dark:text-sky-500/60 hover:text-sky-600 dark:hover:text-sky-400">
-                              <Link2 size={10} />
-                            </a>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-                {boardMembers.length > 0 && (
-                  <div className="pt-2 border-t border-slate-100 dark:border-zinc-800">
-                    <div className="text-xs text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">이사회</div>
-                    <div className="space-y-1">
-                      {boardMembers.map((m, i) => (
-                        <div key={i} className="text-sm">
-                          <span className="text-slate-700 dark:text-zinc-300">{m.name}</span>
-                          {m.organization && <span className="text-xs text-slate-400 dark:text-zinc-500 ml-2">· {m.organization}</span>}
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+      {/* Market row */}
+      {hasMarketData && (
+        <Section title="시장 · 경쟁">
+          <div className="space-y-0.5">
+            <Field label="시장 규모" value={company.market_size_estimate} />
+            <Field label="시장 포지션" value={company.market_position} />
+            <Field label="비즈니스 모델" value={company.business_model} />
+            <Field label="주요 제품" value={company.key_products} />
+            {company.patents_count && <Field label="특허 수" value={`${company.patents_count}건`} />}
+          </div>
+          {competitors.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800">
+              <div className="text-xs text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">경쟁사</div>
+              <div className="flex flex-wrap gap-1.5">
+                {competitors.map((c: string) => <Pill key={c} label={c} />)}
               </div>
-            </Section>
+            </div>
           )}
-
-          {/* Market */}
-          {hasMarketData && (
-            <Section title="시장 · 경쟁">
-              <div className="space-y-0.5">
-                <Field label="시장 규모" value={company.market_size_estimate} />
-                <Field label="시장 포지션" value={company.market_position} />
-                <Field label="비즈니스 모델" value={company.business_model} />
-                <Field label="주요 제품" value={company.key_products} />
-                {company.patents_count && <Field label="특허 수" value={`${company.patents_count}건`} />}
+          {technologies.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800">
+              <div className="text-xs text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">기술 스택</div>
+              <div className="flex flex-wrap gap-1.5">
+                {technologies.map((t: string) => <Pill key={t} label={t} />)}
               </div>
-              {competitors.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800">
-                  <div className="text-xs text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">경쟁사</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {competitors.map((c: string) => <Pill key={c} label={c} />)}
-                  </div>
-                </div>
-              )}
-              {technologies.length > 0 && (
-                <div className="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800">
-                  <div className="text-xs text-slate-400 dark:text-zinc-500 uppercase tracking-wider mb-2">기술 스택</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {technologies.map((t: string) => <Pill key={t} label={t} />)}
-                  </div>
-                </div>
-              )}
-            </Section>
+            </div>
           )}
-        </div>
+        </Section>
       )}
 
       {/* Exit Events */}

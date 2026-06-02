@@ -3,7 +3,7 @@ import { useEffect, useState, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import {
-  Search, SlidersHorizontal, ChevronRight,
+  Search, ChevronRight,
   ChevronDown, ChevronUp, X, TrendingUp, TrendingDown, BarChart2, MapPin,
 } from 'lucide-react';
 import OverviewCharts from '@/components/charts/OverviewCharts';
@@ -158,6 +158,8 @@ function RangeSlider({ label, min, max, value, step = 1, format, onChange }: {
   format?: (n: number) => string;
   onChange: (v: [number, number]) => void;
 }) {
+  const [editLo, setEditLo] = useState(false);
+  const [editHi, setEditHi] = useState(false);
   if (max <= 0 || max <= min) return null;
   const fmt = format ?? String;
   const [lo, hi] = value;
@@ -165,32 +167,62 @@ function RangeSlider({ label, min, max, value, step = 1, format, onChange }: {
   const pct2 = ((hi - min) / (max - min)) * 100;
   const active = lo > min || hi < max;
   const accent = active ? '#38bdf8' : '#94a3b8';
+  // Fix: when lo is at minimum, it must have higher z-index so it can be dragged right
+  const loZ = lo <= min ? 5 : (pct1 >= pct2 - 4 ? 5 : 3);
+  const hiZ = loZ === 5 ? 3 : 4;
 
   return (
-    <div className="flex flex-col gap-1" style={{ minWidth: 152 }}>
-      <div className="flex items-center justify-between gap-2">
-        <span className={cn('text-[10px] font-medium', active ? 'text-sky-500' : 'text-slate-500 dark:text-zinc-500')}>
+    <div className="flex flex-col gap-0.5" style={{ minWidth: 130 }}>
+      <div className="flex items-center justify-between gap-1.5">
+        <span className={cn('text-[10px] font-medium shrink-0', active ? 'text-sky-500' : 'text-slate-500 dark:text-zinc-500')}>
           {label}
         </span>
-        <span className={cn('text-[10px] tabular-nums', active ? 'text-sky-600 dark:text-sky-400 font-semibold' : 'text-slate-400 dark:text-zinc-600')}>
-          {fmt(lo)} — {fmt(hi)}
-        </span>
+        <div className="flex items-center gap-0.5">
+          {editLo ? (
+            <input type="number" defaultValue={lo} min={min} max={hi - step} step={step}
+              className="w-14 px-1 border border-sky-400 rounded text-[10px] text-sky-600 dark:text-sky-400 bg-white dark:bg-zinc-900 text-right leading-tight py-0"
+              autoFocus
+              onBlur={e => { onChange([Math.min(Math.max(Number(e.target.value), min), hi - step), hi]); setEditLo(false); }}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur(); }}
+            />
+          ) : (
+            <button onClick={() => setEditLo(true)}
+              className={cn('text-[10px] tabular-nums hover:text-sky-600 dark:hover:text-sky-400 cursor-text', active ? 'text-sky-600 dark:text-sky-400 font-semibold' : 'text-slate-400 dark:text-zinc-600')}>
+              {fmt(lo)}
+            </button>
+          )}
+          <span className="text-[10px] text-slate-300 dark:text-zinc-700">—</span>
+          {editHi ? (
+            <input type="number" defaultValue={hi} min={lo + step} max={max} step={step}
+              className="w-14 px-1 border border-sky-400 rounded text-[10px] text-sky-600 dark:text-sky-400 bg-white dark:bg-zinc-900 text-right leading-tight py-0"
+              autoFocus
+              onBlur={e => { onChange([lo, Math.min(Math.max(Number(e.target.value), lo + step), max)]); setEditHi(false); }}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === 'Escape') (e.target as HTMLInputElement).blur(); }}
+            />
+          ) : (
+            <button onClick={() => setEditHi(true)}
+              className={cn('text-[10px] tabular-nums hover:text-sky-600 dark:hover:text-sky-400 cursor-text', active ? 'text-sky-600 dark:text-sky-400 font-semibold' : 'text-slate-400 dark:text-zinc-600')}>
+              {fmt(hi)}
+            </button>
+          )}
+        </div>
       </div>
-      <div className="relative h-5 flex items-center select-none">
+      <div className="relative h-4 flex items-center select-none">
         <div className="absolute inset-x-0 h-[3px] rounded-full bg-slate-200 dark:bg-zinc-700 pointer-events-none" />
         <div className="absolute h-[3px] rounded-full pointer-events-none"
           style={{ left: `${pct1}%`, right: `${100 - pct2}%`, background: accent }} />
         <input type="range" min={min} max={max} step={step} value={lo}
           onChange={e => onChange([Math.min(Number(e.target.value), hi - step), hi])}
           className="absolute inset-x-0 w-full h-full opacity-0 cursor-pointer"
-          style={{ zIndex: lo > max - (max - min) * 0.08 ? 5 : 3 }} />
+          style={{ zIndex: loZ }} />
         <input type="range" min={min} max={max} step={step} value={hi}
           onChange={e => onChange([lo, Math.max(Number(e.target.value), lo + step)])}
-          className="absolute inset-x-0 w-full h-full opacity-0 cursor-pointer" style={{ zIndex: 4 }} />
+          className="absolute inset-x-0 w-full h-full opacity-0 cursor-pointer"
+          style={{ zIndex: hiZ }} />
         <div className="absolute w-3 h-3 rounded-full border-2 border-white dark:border-zinc-900 shadow pointer-events-none"
-          style={{ left: `calc(${pct1}% - 6px)`, background: accent, zIndex: 6 }} />
+          style={{ left: `calc(${pct1}% - 6px)`, background: accent, zIndex: 8 }} />
         <div className="absolute w-3 h-3 rounded-full border-2 border-white dark:border-zinc-900 shadow pointer-events-none"
-          style={{ left: `calc(${pct2}% - 6px)`, background: accent, zIndex: 6 }} />
+          style={{ left: `calc(${pct2}% - 6px)`, background: accent, zIndex: 8 }} />
       </div>
     </div>
   );
@@ -238,7 +270,7 @@ function Highlight({ text, query }: { text?: string | null; query: string }) {
   );
 }
 
-// ── Company row — compact single-line, hover popup for multi-investment ────────
+// ── Company row — compact columns, click-to-expand investment detail ──────────
 function CompanyRow({ row, onSectorClick, onRegionClick, search, activeSector, activeRegion, invActive, stakeActive, valActive }: {
   row: Row;
   onSectorClick: (s: string) => void;
@@ -250,6 +282,7 @@ function CompanyRow({ row, onSectorClick, onRegionClick, search, activeSector, a
   stakeActive: boolean;
   valActive: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const investments = row.investments ?? [];
   const latestInv   = investments.length > 0 ? investments[investments.length - 1] : null;
   const totalInvM   = row.total_investment_m ?? investments.reduce((s, inv) => s + (inv.investment_amount_m ?? 0), 0);
@@ -273,13 +306,18 @@ function CompanyRow({ row, onSectorClick, onRegionClick, search, activeSector, a
     urgency >= 5 ? '#ef4444' : urgency >= 4 ? '#f97316' : urgency >= 3 ? '#eab308' : 'transparent';
 
   return (
+    <>
     <Link href={`/portfolio/${encodeURIComponent(row.company_name)}`}
-      className="flex items-stretch border-b border-slate-100 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:bg-sky-50/30 dark:hover:bg-sky-900/10 transition-colors group border-l-[3px]"
+      className={cn(
+        'flex items-stretch bg-white dark:bg-zinc-950 hover:bg-sky-50/30 dark:hover:bg-sky-900/10 transition-colors group border-l-[3px]',
+        expanded ? '' : 'border-b border-slate-100 dark:border-zinc-800',
+      )}
       style={{ borderLeftColor: urgencyBorder }}>
 
-      {/* Col 1: identity (w-56) */}
-      <div className="w-56 shrink-0 px-3 py-2.5 flex flex-col gap-0.5 min-w-0 justify-center">
-        <div className="flex items-center gap-1.5 flex-wrap">
+      {/* Col 1: identity (w-64) */}
+      <div className="w-64 shrink-0 px-3 py-2.5 flex flex-col gap-0.5 min-w-0 justify-center">
+        {/* Line 1: tier + name + region */}
+        <div className="flex items-center gap-1.5 min-w-0 overflow-hidden">
           {row.monitoring_tier ? (
             <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded border leading-none flex items-center gap-1 shrink-0', TIER_CLS[row.monitoring_tier])}>
               <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
@@ -288,9 +326,22 @@ function CompanyRow({ row, onSectorClick, onRegionClick, search, activeSector, a
           ) : (
             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
           )}
-          <span className="text-sm font-bold text-slate-800 dark:text-zinc-100 leading-tight truncate">
+          <span className="text-sm font-bold text-slate-800 dark:text-zinc-100 leading-tight truncate min-w-0">
             {row.company_name}
           </span>
+          {row.region && (
+            <button onClick={e => { e.preventDefault(); e.stopPropagation(); onRegionClick(row.region!); }}
+              className={cn(
+                'flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors leading-none shrink-0',
+                regionMatches && 'ring-1 ring-sky-300 dark:ring-sky-500/60 bg-sky-50 dark:bg-sky-500/10'
+              )}>
+              <MapPin size={8} className="shrink-0" />
+              <Highlight text={row.region} query={search} />
+            </button>
+          )}
+        </div>
+        {/* Line 2: status + founded */}
+        <div className="flex items-center gap-1.5">
           {row.status && (
             <span className={cn(
               'text-[9px] px-1.5 py-0.5 rounded leading-none shrink-0 font-medium',
@@ -299,38 +350,28 @@ function CompanyRow({ row, onSectorClick, onRegionClick, search, activeSector, a
               {row.status}
             </span>
           )}
-        </div>
-        <div className="flex items-center gap-1 flex-wrap">
-          {row.region && (
-            <button onClick={e => { e.preventDefault(); e.stopPropagation(); onRegionClick(row.region!); }}
-              className={cn(
-                'flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors leading-none',
-                regionMatches && 'ring-1 ring-sky-300 dark:ring-sky-500/60 bg-sky-50 dark:bg-sky-500/10'
-              )}>
-              <MapPin size={8} className="shrink-0" />
-              <Highlight text={row.region} query={search} />
-              {row.hq_city && <span className="text-slate-300 dark:text-zinc-700 ml-0.5">· {row.hq_city}</span>}
-            </button>
-          )}
           {row.founded_year && (
             <span className="text-[10px] text-slate-400 dark:text-zinc-600 shrink-0">est. {row.founded_year}</span>
+          )}
+          {row.hq_city && (
+            <span className="text-[10px] text-slate-400 dark:text-zinc-600 truncate">· {row.hq_city}</span>
           )}
         </div>
       </div>
 
-      {/* Col 2: sector + description (flex-1) */}
-      <div className="flex-1 min-w-0 px-3 py-2.5 border-l border-slate-100 dark:border-zinc-800 flex flex-col gap-1 justify-center">
+      {/* Col 2: sector + description (flex-1, single line) */}
+      <div className="flex-1 min-w-0 px-3 py-2.5 border-l border-slate-100 dark:border-zinc-800 flex items-center gap-2 overflow-hidden">
         {row.sector && (
           <button onClick={e => { e.preventDefault(); e.stopPropagation(); onSectorClick(row.sector!); }}
             className={cn(
-              'self-start text-[10px] px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-500/20 hover:bg-sky-100 dark:hover:bg-sky-500/20 transition-colors leading-none font-medium',
+              'shrink-0 text-[10px] px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-500/20 hover:bg-sky-100 dark:hover:bg-sky-500/20 transition-colors leading-none font-medium',
               sectorMatches && 'ring-1 ring-sky-300 dark:ring-sky-500/60'
             )}>
             <Highlight text={row.sector} query={search} />
           </button>
         )}
         {row.description && (
-          <p className="text-[11px] text-slate-500 dark:text-zinc-500 leading-relaxed line-clamp-2">
+          <p className="text-[11px] text-slate-500 dark:text-zinc-500 leading-tight truncate min-w-0">
             <Highlight text={row.description} query={search} />
           </p>
         )}
@@ -342,60 +383,20 @@ function CompanyRow({ row, onSectorClick, onRegionClick, search, activeSector, a
         (invActive || stakeActive) && 'bg-violet-50/50 dark:bg-violet-500/5'
       )}>
         <div className="flex items-center gap-1.5">
-          <div className="relative group/inv">
-            <span className={cn(
-              'text-[11px] font-semibold tabular-nums',
-              multiInv ? 'text-sky-600 dark:text-sky-400 underline decoration-dashed cursor-help' : 'text-slate-600 dark:text-zinc-400'
+          <button
+            onClick={e => { e.preventDefault(); e.stopPropagation(); setExpanded(v => !v); }}
+            className={cn(
+              'relative flex items-center gap-0.5 text-[11px] font-semibold tabular-nums px-1.5 py-0.5 rounded transition-colors',
+              investments.length > 1
+                ? 'text-sky-600 dark:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-500/10'
+                : 'text-slate-600 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800'
             )}>
-              {investments.length}건
-            </span>
+            {investments.length}건
             {hasHiddenTermsMatch && (
-              <span className="absolute -top-0.5 -right-2 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="접힌 투자 조건에 검색어 포함" />
+              <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-amber-400" title="투자 조건에 검색어 포함" />
             )}
-            {multiInv && (
-              <div className="hidden group-hover/inv:block absolute bottom-full left-0 z-50 mb-2 w-max max-w-xs pointer-events-none">
-                <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-2xl p-3 text-xs">
-                  <table className="border-collapse">
-                    <thead>
-                      <tr className="text-[10px] text-slate-400 dark:text-zinc-500">
-                        <th className="text-left pr-3 pb-1.5 font-medium">라운드</th>
-                        <th className="text-right pr-3 pb-1.5 font-medium">연도</th>
-                        <th className="text-right pr-3 pb-1.5 font-medium">투자금</th>
-                        <th className="text-right pr-3 pb-1.5 font-medium">지분</th>
-                        <th className="text-right pr-3 pb-1.5 font-medium">당시가치</th>
-                        <th className="text-left pb-1.5 font-medium">조건</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {investments.map((inv, i) => (
-                        <tr key={inv.id ?? i} className="border-t border-slate-100 dark:border-zinc-800">
-                          <td className="pr-3 py-1 font-semibold text-slate-700 dark:text-zinc-200">{inv.round ?? '—'}</td>
-                          <td className="pr-3 py-1 text-right tabular-nums text-slate-500 dark:text-zinc-400">{inv.investment_year ?? '—'}</td>
-                          <td className="pr-3 py-1 text-right tabular-nums text-slate-700 dark:text-zinc-200">{inv.investment_amount_m ? formatM(inv.investment_amount_m) : '—'}</td>
-                          <td className="pr-3 py-1 text-right tabular-nums text-violet-600 dark:text-violet-400">{inv.stake_pct ? `${inv.stake_pct.toFixed(1)}%` : '—'}</td>
-                          <td className="pr-3 py-1 text-right tabular-nums text-slate-500 dark:text-zinc-400">{inv.valuation_at_investment_m ? formatM(inv.valuation_at_investment_m) : '—'}</td>
-                          <td className="py-1 text-slate-400 dark:text-zinc-500 max-w-[120px] truncate">
-                            {inv.investment_terms ? <Highlight text={inv.investment_terms} query={search} /> : '—'}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="border-t-2 border-slate-200 dark:border-zinc-700 text-[10px] font-bold text-slate-700 dark:text-zinc-200">
-                        <td className="pr-3 pt-1.5 text-slate-400 dark:text-zinc-500 font-medium">누적</td>
-                        <td className="pr-3 pt-1.5" />
-                        <td className="pr-3 pt-1.5 text-right tabular-nums">{formatM(totalInvM)}</td>
-                        <td className="pr-3 pt-1.5 text-right tabular-nums text-violet-600 dark:text-violet-400">
-                          {avgStake > 0 ? `${avgStake.toFixed(1)}%` : '—'}
-                        </td>
-                        <td colSpan={2} />
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
+            <ChevronDown size={10} className={cn('transition-transform', expanded && 'rotate-180')} />
+          </button>
           {totalInvM > 0 && (
             <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-200 tabular-nums">{formatM(totalInvM)}</span>
           )}
@@ -452,6 +453,52 @@ function CompanyRow({ row, onSectorClick, onRegionClick, search, activeSector, a
 
       <ChevronRight size={13} className="mx-2 shrink-0 self-center text-slate-200 dark:text-zinc-700 group-hover:text-sky-400 transition-colors" />
     </Link>
+
+    {/* Expanded investment table — full width, below the row */}
+    {expanded && investments.length > 0 && (
+      <div className="border-b border-slate-100 dark:border-zinc-800 bg-slate-50/60 dark:bg-zinc-900/60 px-6 py-3 overflow-x-auto">
+        <table className="w-full text-xs border-collapse whitespace-nowrap">
+          <thead>
+            <tr className="text-[10px] text-slate-400 dark:text-zinc-500">
+              <th className="text-left pr-4 pb-1.5 font-medium">라운드</th>
+              <th className="text-right pr-4 pb-1.5 font-medium">연도</th>
+              <th className="text-right pr-4 pb-1.5 font-medium">투자금</th>
+              <th className="text-right pr-4 pb-1.5 font-medium">지분</th>
+              <th className="text-right pr-4 pb-1.5 font-medium">당시가치</th>
+              <th className="text-left pb-1.5 font-medium">투자조건</th>
+            </tr>
+          </thead>
+          <tbody>
+            {investments.map((inv, i) => (
+              <tr key={inv.id ?? i} className="border-t border-slate-100 dark:border-zinc-800">
+                <td className="pr-4 py-1.5 font-semibold text-slate-700 dark:text-zinc-200">{inv.round ?? '—'}</td>
+                <td className="pr-4 py-1.5 text-right tabular-nums text-slate-500 dark:text-zinc-400">{inv.investment_year ?? '—'}</td>
+                <td className="pr-4 py-1.5 text-right tabular-nums text-slate-700 dark:text-zinc-200">{inv.investment_amount_m ? formatM(inv.investment_amount_m) : '—'}</td>
+                <td className="pr-4 py-1.5 text-right tabular-nums text-violet-600 dark:text-violet-400">{inv.stake_pct ? `${inv.stake_pct.toFixed(1)}%` : '—'}</td>
+                <td className="pr-4 py-1.5 text-right tabular-nums text-slate-500 dark:text-zinc-400">{inv.valuation_at_investment_m ? formatM(inv.valuation_at_investment_m) : '—'}</td>
+                <td className="py-1.5 text-slate-500 dark:text-zinc-400">
+                  {inv.investment_terms ? <Highlight text={inv.investment_terms} query={search} /> : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          {investments.length > 1 && (
+            <tfoot>
+              <tr className="border-t-2 border-slate-200 dark:border-zinc-700 text-[10px] font-bold text-slate-700 dark:text-zinc-200">
+                <td className="pr-4 pt-1.5 text-slate-400 dark:text-zinc-500 font-medium">누적</td>
+                <td className="pr-4 pt-1.5" />
+                <td className="pr-4 pt-1.5 text-right tabular-nums">{formatM(totalInvM)}</td>
+                <td className="pr-4 pt-1.5 text-right tabular-nums text-violet-600 dark:text-violet-400">
+                  {avgStake > 0 ? `${avgStake.toFixed(1)}%` : '—'}
+                </td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -474,7 +521,6 @@ function PortfolioContent() {
   const [valRange, setValRange]     = useState<[number, number]>([0, 1000]);
 
   const [showCharts, setShowCharts] = useState(true);
-  const [showRanges, setShowRanges] = useState(false);
   const [allRows, setAllRows]       = useState<Row[]>([]);
   const [loading, setLoading]       = useState(true);
   const [dropOpts, setDropOpts]     = useState<{ sectors: string[]; regions: string[]; rounds: string[] }>({
@@ -550,7 +596,7 @@ function PortfolioContent() {
 
   const hasFilters = !!(search || sector || region || round || status || tier || invType || invYear || invActive || stakeActive || valActive);
 
-  const invFmt = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(0)}B` : `$${n}M`;
+  const invFmt = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(2)}B` : `$${n.toFixed(2)}M`;
   const valFmt = (n: number) => n >= 1000 ? `$${(n / 1000).toFixed(0)}B` : `$${n}M`;
   const stFmt  = (n: number) => `${n.toFixed(0)}%`;
 
@@ -649,19 +695,12 @@ function PortfolioContent() {
               ))}
             </div>
 
-            <button onClick={() => setShowRanges(v => !v)}
-              className={cn(
-                'flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors border',
-                (showRanges || invActive || stakeActive || valActive)
-                  ? 'bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-200 dark:border-sky-500/30'
-                  : 'bg-white dark:bg-zinc-900 text-slate-500 dark:text-zinc-400 border-slate-200 dark:border-zinc-700 hover:border-sky-300'
-              )}>
-              <SlidersHorizontal size={11} />
-              범위
-              {(invActive || stakeActive || valActive) && (
-                <span className="w-1.5 h-1.5 rounded-full bg-sky-500 shrink-0" />
-              )}
-            </button>
+            <RangeSlider label="투자금액" min={0} max={rangeMax.inv}
+              value={invRange} step={rangeMax.inv > 100 ? 10 : 1} format={invFmt} onChange={setInvRange} />
+            <RangeSlider label="지분율" min={0} max={rangeMax.stake}
+              value={stakeRange} step={rangeMax.stake > 50 ? 1 : 0.5} format={stFmt} onChange={setStakeRange} />
+            <RangeSlider label="현재 기업가치" min={0} max={rangeMax.val}
+              value={valRange} step={rangeMax.val > 1000 ? 50 : 10} format={valFmt} onChange={setValRange} />
 
             <div className="flex flex-wrap gap-1">
               {sector  && <Chip label={`섹터: ${sector}`}  onRemove={() => setSector('')} />}
@@ -688,23 +727,13 @@ function PortfolioContent() {
             </div>
           </div>
 
-          {showRanges && (
-            <div className="flex flex-wrap gap-6 px-4 pb-3 pt-1 border-t border-slate-100 dark:border-zinc-800/60">
-              <RangeSlider label="투자금액" min={0} max={rangeMax.inv}
-                value={invRange} step={rangeMax.inv > 100 ? 10 : 1} format={invFmt} onChange={setInvRange} />
-              <RangeSlider label="지분율" min={0} max={rangeMax.stake}
-                value={stakeRange} step={rangeMax.stake > 50 ? 1 : 0.5} format={stFmt} onChange={setStakeRange} />
-              <RangeSlider label="현재 기업가치" min={0} max={rangeMax.val}
-                value={valRange} step={rangeMax.val > 1000 ? 50 : 10} format={valFmt} onChange={setValRange} />
-            </div>
-          )}
         </div>
 
         {/* Portfolio list — own scroll */}
         <div className="flex-1 overflow-y-auto flex flex-col">
           {/* Column headers */}
           <div className="shrink-0 flex items-center border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900 text-[10px] font-medium text-slate-400 dark:text-zinc-600 select-none border-l-[3px] border-l-transparent">
-            <div className="w-56 shrink-0 px-3 py-1.5">기업명 · 지역</div>
+            <div className="w-64 shrink-0 px-3 py-1.5">기업명 · 지역</div>
             <div className="flex-1 min-w-0 px-3 py-1.5 border-l border-slate-200 dark:border-zinc-800">섹터 · 소개</div>
             <div className={cn('w-44 shrink-0 px-3 py-1.5 border-l border-slate-200 dark:border-zinc-800', (invActive || stakeActive) && 'text-violet-500 dark:text-violet-400')}>
               투자 내역
@@ -719,7 +748,7 @@ function PortfolioContent() {
           {loading ? (
             Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="flex items-center border-b border-slate-100 dark:border-zinc-800 animate-pulse">
-                <div className="w-56 shrink-0 px-3 py-3 space-y-1.5">
+                <div className="w-64 shrink-0 px-3 py-3 space-y-1.5">
                   <div className="h-3.5 bg-slate-200 dark:bg-zinc-800 rounded w-32" />
                   <div className="h-2.5 bg-slate-100 dark:bg-zinc-800/60 rounded w-20" />
                 </div>

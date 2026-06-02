@@ -68,21 +68,23 @@ export default function RegionBubbleMap({ data, activeItem, onClick, height = 22
   const bubbles = useMemo(() => {
     if (!dims.w || !dims.h) return [];
     const proj = geoNaturalEarth1()
-      .scale(145)
-      .translate([dims.w * 0.5, dims.h * 0.56])
+      .scale(130)
+      .translate([dims.w * 0.5, dims.h * 0.54])
       .rotate([0, 0, 0]);
 
-    return data.map(d => {
+    return data.map((d, idx) => {
       const centroid = CENTROIDS[d.name];
       if (!centroid) return null;
       const pt = proj(centroid);
       if (!pt) return null;
       const [x, y] = pt;
+      // Clip bubbles that fall outside the container bounds
+      if (x < 0 || x > dims.w || y < 0 || y > dims.h) return null;
       const r = Math.max(7, (d.value / maxValue) * 28 + 4);
       const dimmed = !!(activeItem && d.name !== activeItem);
       const color = colorMap[d.name] ?? '#94a3b8';
-      return { name: d.name, value: d.value, x, y, r, dimmed, color };
-    }).filter(Boolean) as { name: string; value: number; x: number; y: number; r: number; dimmed: boolean; color: string }[];
+      return { name: d.name, value: d.value, x, y, r, dimmed, color, key: `${d.name}_${idx}` };
+    }).filter(Boolean) as { name: string; value: number; x: number; y: number; r: number; dimmed: boolean; color: string; key: string }[];
   }, [dims, data, activeItem, maxValue, colorMap]);
 
   const missing = data.filter(d => !CENTROIDS[d.name]);
@@ -95,8 +97,8 @@ export default function RegionBubbleMap({ data, activeItem, onClick, height = 22
           features={worldFeatures}
           margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
           projectionType="naturalEarth1"
-          projectionScale={145}
-          projectionTranslation={[0.5, 0.56]}
+          projectionScale={130}
+          projectionTranslation={[0.5, 0.54]}
           projectionRotation={[0, 0, 0]}
           fillColor="#e8edf2"
           borderWidth={0.4}
@@ -108,10 +110,10 @@ export default function RegionBubbleMap({ data, activeItem, onClick, height = 22
         {/* Bubble overlay — absolutely positioned SVG, projection matches GeoMap */}
         {dims.w > 0 && (
           <svg
-            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'visible' }}
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', overflow: 'hidden' }}
           >
             {bubbles.map(b => (
-              <g key={b.name} onClick={() => onClick?.(b.name)} style={{ cursor: 'pointer' }}>
+              <g key={b.key} onClick={() => onClick?.(b.name)} style={{ cursor: 'pointer' }}>
                 <title>{b.name}: {b.value}개</title>
                 <circle
                   cx={b.x} cy={b.y} r={b.r}

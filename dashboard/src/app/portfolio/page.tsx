@@ -222,15 +222,36 @@ function KpiPill({ label, value, accent, onClick }: {
   );
 }
 
-// ── Company row (card style, multi-investment) ─────────────────────────────────
-function CompanyRow({ row, onSectorClick, onRegionClick }: {
+// ── Keyword highlight ─────────────────────────────────────────────────────────
+function Highlight({ text, query }: { text?: string | null; query: string }) {
+  if (!text || !query) return <>{text ?? ''}</>;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="bg-amber-200 dark:bg-amber-500/30 text-amber-900 dark:text-amber-100 rounded-[2px] not-italic px-0">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
+// ── Company row — compact single-line, hover popup for multi-investment ────────
+function CompanyRow({ row, onSectorClick, onRegionClick, search, activeSector, activeRegion, invActive, stakeActive, valActive }: {
   row: Row;
   onSectorClick: (s: string) => void;
   onRegionClick: (r: string) => void;
+  search: string;
+  activeSector: string;
+  activeRegion: string;
+  invActive: boolean;
+  stakeActive: boolean;
+  valActive: boolean;
 }) {
   const investments = row.investments ?? [];
   const latestInv   = investments.length > 0 ? investments[investments.length - 1] : null;
-  const earliestInv = investments.length > 0 ? investments[0] : null;
   const totalInvM   = row.total_investment_m ?? investments.reduce((s, inv) => s + (inv.investment_amount_m ?? 0), 0);
   const currentVal  = latestInv?.current_valuation_m ?? row.current_valuation_m;
   const latestValAtInv = latestInv?.valuation_at_investment_m ?? row.valuation_at_investment_m;
@@ -239,188 +260,197 @@ function CompanyRow({ row, onSectorClick, onRegionClick }: {
   const signalTime = relDays(row.signal_updated_at || row.last_news_collected_at);
   const dotColor = STATUS_DOT_COLOR[row.status ?? ''] ?? '#94a3b8';
   const isUp = (currentVal ?? 0) > (latestValAtInv ?? 0);
+  const multiInv = investments.length > 1;
+  const avgStake = investments.filter(i => i.stake_pct).length > 0
+    ? investments.filter(i => i.stake_pct).reduce((s, i) => s + (i.stake_pct ?? 0), 0) / investments.filter(i => i.stake_pct).length
+    : 0;
+  const hasHiddenTermsMatch = search
+    ? investments.some(inv => inv.investment_terms?.toLowerCase().includes(search.toLowerCase()))
+    : false;
+  const sectorMatches = activeSector && activeSector === row.sector;
+  const regionMatches = activeRegion && activeRegion === row.region;
   const urgencyBorder =
     urgency >= 5 ? '#ef4444' : urgency >= 4 ? '#f97316' : urgency >= 3 ? '#eab308' : 'transparent';
 
   return (
     <Link href={`/portfolio/${encodeURIComponent(row.company_name)}`}
-      className="block border-b border-slate-100 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:bg-sky-50/30 dark:hover:bg-sky-900/10 transition-colors group border-l-[3px]"
+      className="flex items-stretch border-b border-slate-100 dark:border-zinc-800 bg-white dark:bg-zinc-950 hover:bg-sky-50/30 dark:hover:bg-sky-900/10 transition-colors group border-l-[3px]"
       style={{ borderLeftColor: urgencyBorder }}>
 
-      {/* ── Header: name + meta ─────────────────────────────────────────────── */}
-      <div className="flex items-start gap-3 px-4 pt-3 pb-1">
-        <div className="flex-1 min-w-0">
-
-          {/* Row 1: tier ● + name + status badge + sector + region + founded */}
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {/* Tier + status dot merged */}
-            <div className="flex items-center gap-1 shrink-0">
-              {row.monitoring_tier ? (
-                <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded border leading-none flex items-center gap-1', TIER_CLS[row.monitoring_tier])}>
-                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
-                  T{row.monitoring_tier}
-                </span>
-              ) : (
-                <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
-              )}
-            </div>
-
-            <span className="text-sm font-bold text-slate-800 dark:text-zinc-100 leading-tight">
-              {row.company_name}
+      {/* Col 1: identity (w-56) */}
+      <div className="w-56 shrink-0 px-3 py-2.5 flex flex-col gap-0.5 min-w-0 justify-center">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {row.monitoring_tier ? (
+            <span className={cn('text-[9px] font-bold px-1.5 py-0.5 rounded border leading-none flex items-center gap-1 shrink-0', TIER_CLS[row.monitoring_tier])}>
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: dotColor }} />
+              T{row.monitoring_tier}
             </span>
-
-            {/* Status badge */}
-            {row.status && (
-              <span className={cn(
-                'text-[10px] px-2 py-0.5 rounded leading-none shrink-0 font-medium',
-                STATUS_BADGE[row.status] ?? 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
-              )}>
-                {row.status}
-              </span>
-            )}
-
-            {/* Sector — square pill */}
-            {row.sector && (
-              <button onClick={e => { e.preventDefault(); e.stopPropagation(); onSectorClick(row.sector!); }}
-                className="text-[10px] px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-500/20 hover:bg-sky-100 dark:hover:bg-sky-500/20 transition-colors leading-none shrink-0 font-medium">
-                {row.sector}
-              </button>
-            )}
-
-            {/* Region — with pin icon */}
-            {row.region && (
-              <button onClick={e => { e.preventDefault(); e.stopPropagation(); onRegionClick(row.region!); }}
-                className="flex items-center gap-0.5 text-[10px] px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-700 transition-colors leading-none shrink-0">
-                <MapPin size={9} className="shrink-0" />
-                {row.region}{row.hq_city ? ` · ${row.hq_city}` : ''}
-              </button>
-            )}
-
-            {row.founded_year && (
-              <span className="text-[10px] text-slate-400 dark:text-zinc-600 shrink-0">est. {row.founded_year}</span>
-            )}
-
-            <ChevronRight size={13} className="ml-auto shrink-0 text-slate-200 dark:text-zinc-700 group-hover:text-sky-400 transition-colors" />
-          </div>
-
-          {/* Description — 2 lines max, no truncation */}
-          {row.description && (
-            <p className="text-[11px] text-slate-500 dark:text-zinc-500 mt-1.5 leading-relaxed line-clamp-2 pl-0.5">
-              {row.description}
-            </p>
+          ) : (
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: dotColor }} />
+          )}
+          <span className="text-sm font-bold text-slate-800 dark:text-zinc-100 leading-tight truncate">
+            {row.company_name}
+          </span>
+          {row.status && (
+            <span className={cn(
+              'text-[9px] px-1.5 py-0.5 rounded leading-none shrink-0 font-medium',
+              STATUS_BADGE[row.status] ?? 'bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-zinc-400 border border-slate-200 dark:border-zinc-700'
+            )}>
+              {row.status}
+            </span>
           )}
         </div>
+        <div className="flex items-center gap-1 flex-wrap">
+          {row.region && (
+            <button onClick={e => { e.preventDefault(); e.stopPropagation(); onRegionClick(row.region!); }}
+              className={cn(
+                'flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded text-slate-500 dark:text-zinc-400 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors leading-none',
+                regionMatches && 'ring-1 ring-sky-300 dark:ring-sky-500/60 bg-sky-50 dark:bg-sky-500/10'
+              )}>
+              <MapPin size={8} className="shrink-0" />
+              <Highlight text={row.region} query={search} />
+              {row.hq_city && <span className="text-slate-300 dark:text-zinc-700 ml-0.5">· {row.hq_city}</span>}
+            </button>
+          )}
+          {row.founded_year && (
+            <span className="text-[10px] text-slate-400 dark:text-zinc-600 shrink-0">est. {row.founded_year}</span>
+          )}
+        </div>
+      </div>
 
-        {/* Right summary: total invested + current val */}
-        {(totalInvM > 0 || currentVal) && (
-          <div className="shrink-0 text-right space-y-0.5 pt-0.5">
-            {totalInvM > 0 && (
-              <div>
-                <div className="text-[9px] text-slate-400 dark:text-zinc-600 leading-none mb-0.5">총 투자</div>
-                <div className="text-xs font-bold text-slate-700 dark:text-zinc-200 tabular-nums">{formatM(totalInvM)}</div>
-              </div>
+      {/* Col 2: sector + description (flex-1) */}
+      <div className="flex-1 min-w-0 px-3 py-2.5 border-l border-slate-100 dark:border-zinc-800 flex flex-col gap-1 justify-center">
+        {row.sector && (
+          <button onClick={e => { e.preventDefault(); e.stopPropagation(); onSectorClick(row.sector!); }}
+            className={cn(
+              'self-start text-[10px] px-2 py-0.5 rounded bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400 border border-sky-100 dark:border-sky-500/20 hover:bg-sky-100 dark:hover:bg-sky-500/20 transition-colors leading-none font-medium',
+              sectorMatches && 'ring-1 ring-sky-300 dark:ring-sky-500/60'
+            )}>
+            <Highlight text={row.sector} query={search} />
+          </button>
+        )}
+        {row.description && (
+          <p className="text-[11px] text-slate-500 dark:text-zinc-500 leading-relaxed line-clamp-2">
+            <Highlight text={row.description} query={search} />
+          </p>
+        )}
+      </div>
+
+      {/* Col 3: investments (w-44) */}
+      <div className={cn(
+        'w-44 shrink-0 px-3 py-2.5 border-l border-slate-100 dark:border-zinc-800 flex flex-col gap-0.5 justify-center',
+        (invActive || stakeActive) && 'bg-violet-50/50 dark:bg-violet-500/5'
+      )}>
+        <div className="flex items-center gap-1.5">
+          <div className="relative group/inv">
+            <span className={cn(
+              'text-[11px] font-semibold tabular-nums',
+              multiInv ? 'text-sky-600 dark:text-sky-400 underline decoration-dashed cursor-help' : 'text-slate-600 dark:text-zinc-400'
+            )}>
+              {investments.length}건
+            </span>
+            {hasHiddenTermsMatch && (
+              <span className="absolute -top-0.5 -right-2 w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" title="접힌 투자 조건에 검색어 포함" />
             )}
-            {currentVal && (
-              <div>
-                <div className="text-[9px] text-slate-400 dark:text-zinc-600 leading-none mb-0.5">현재 가치</div>
-                <div className={cn('text-xs font-bold tabular-nums flex items-center gap-0.5 justify-end', isUp ? 'text-emerald-500' : 'text-rose-400')}>
-                  {formatM(currentVal)}
-                  {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
+            {multiInv && (
+              <div className="hidden group-hover/inv:block absolute bottom-full left-0 z-50 mb-2 w-max max-w-xs pointer-events-none">
+                <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl shadow-2xl p-3 text-xs">
+                  <table className="border-collapse">
+                    <thead>
+                      <tr className="text-[10px] text-slate-400 dark:text-zinc-500">
+                        <th className="text-left pr-3 pb-1.5 font-medium">라운드</th>
+                        <th className="text-right pr-3 pb-1.5 font-medium">연도</th>
+                        <th className="text-right pr-3 pb-1.5 font-medium">투자금</th>
+                        <th className="text-right pr-3 pb-1.5 font-medium">지분</th>
+                        <th className="text-right pr-3 pb-1.5 font-medium">당시가치</th>
+                        <th className="text-left pb-1.5 font-medium">조건</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {investments.map((inv, i) => (
+                        <tr key={inv.id ?? i} className="border-t border-slate-100 dark:border-zinc-800">
+                          <td className="pr-3 py-1 font-semibold text-slate-700 dark:text-zinc-200">{inv.round ?? '—'}</td>
+                          <td className="pr-3 py-1 text-right tabular-nums text-slate-500 dark:text-zinc-400">{inv.investment_year ?? '—'}</td>
+                          <td className="pr-3 py-1 text-right tabular-nums text-slate-700 dark:text-zinc-200">{inv.investment_amount_m ? formatM(inv.investment_amount_m) : '—'}</td>
+                          <td className="pr-3 py-1 text-right tabular-nums text-violet-600 dark:text-violet-400">{inv.stake_pct ? `${inv.stake_pct.toFixed(1)}%` : '—'}</td>
+                          <td className="pr-3 py-1 text-right tabular-nums text-slate-500 dark:text-zinc-400">{inv.valuation_at_investment_m ? formatM(inv.valuation_at_investment_m) : '—'}</td>
+                          <td className="py-1 text-slate-400 dark:text-zinc-500 max-w-[120px] truncate">
+                            {inv.investment_terms ? <Highlight text={inv.investment_terms} query={search} /> : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t-2 border-slate-200 dark:border-zinc-700 text-[10px] font-bold text-slate-700 dark:text-zinc-200">
+                        <td className="pr-3 pt-1.5 text-slate-400 dark:text-zinc-500 font-medium">누적</td>
+                        <td className="pr-3 pt-1.5" />
+                        <td className="pr-3 pt-1.5 text-right tabular-nums">{formatM(totalInvM)}</td>
+                        <td className="pr-3 pt-1.5 text-right tabular-nums text-violet-600 dark:text-violet-400">
+                          {avgStake > 0 ? `${avgStake.toFixed(1)}%` : '—'}
+                        </td>
+                        <td colSpan={2} />
+                      </tr>
+                    </tfoot>
+                  </table>
                 </div>
               </div>
             )}
+          </div>
+          {totalInvM > 0 && (
+            <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-200 tabular-nums">{formatM(totalInvM)}</span>
+          )}
+        </div>
+        {(avgStake > 0 || (investments.length === 1 && investments[0]?.stake_pct)) && (
+          <div className="text-[10px] text-violet-600 dark:text-violet-400 tabular-nums">
+            지분 {avgStake > 0 ? avgStake.toFixed(1) : investments[0].stake_pct!.toFixed(1)}%
           </div>
         )}
       </div>
 
-      {/* ── Investment rows ──────────────────────────────────────────────────── */}
-      {investments.length > 0 && (
-        <div className="mx-4 mb-2 mt-1 border border-slate-100 dark:border-zinc-800 rounded-lg overflow-hidden text-xs">
-          {investments.map((inv, i) => (
-            <div key={inv.id ?? i} className={cn(
-              'flex items-center gap-0 bg-slate-50/60 dark:bg-zinc-900/40',
-              i > 0 && 'border-t border-slate-100 dark:border-zinc-800'
-            )}>
-              {/* Round + Year + Type */}
-              <div className="w-40 shrink-0 px-3 py-1.5">
-                <span className="font-semibold text-slate-700 dark:text-zinc-200">{inv.round ?? '—'}</span>
-                {inv.investment_year && <span className="text-slate-400 dark:text-zinc-600 ml-1.5 text-[10px]">{inv.investment_year}</span>}
-                {inv.investment_type && (
-                  <span className="ml-1.5 text-[10px] text-slate-400 dark:text-zinc-600 bg-slate-100 dark:bg-zinc-800 px-1 py-0.5 rounded leading-none">
-                    {inv.investment_type}
-                  </span>
-                )}
-              </div>
+      {/* Col 4: valuation (w-40) */}
+      <div className={cn(
+        'w-40 shrink-0 px-3 py-2.5 border-l border-slate-100 dark:border-zinc-800 flex flex-col gap-0.5 justify-center',
+        valActive && 'bg-amber-50/50 dark:bg-amber-500/5'
+      )}>
+        {latestValAtInv ? (
+          <div className="text-[10px] text-slate-400 dark:text-zinc-600">
+            당시 <span className="text-slate-600 dark:text-zinc-300 font-medium tabular-nums">{formatM(latestValAtInv)}</span>
+          </div>
+        ) : null}
+        {currentVal ? (
+          <div className={cn('text-[11px] font-bold tabular-nums flex items-center gap-0.5', isUp ? 'text-emerald-500' : 'text-rose-400')}>
+            {formatM(currentVal)}
+            {isUp ? <TrendingUp size={9} /> : <TrendingDown size={9} />}
+          </div>
+        ) : null}
+        {latestValAtInv && currentVal && (
+          <div className={cn('text-[10px] tabular-nums', isUp ? 'text-emerald-400' : 'text-rose-400')}>
+            {((currentVal / latestValAtInv - 1) * 100) >= 0 ? '+' : ''}{((currentVal / latestValAtInv - 1) * 100).toFixed(0)}%
+          </div>
+        )}
+        {!latestValAtInv && !currentVal && (
+          <span className="text-[11px] text-slate-300 dark:text-zinc-700">—</span>
+        )}
+      </div>
 
-              {/* Amount */}
-              <div className="w-28 shrink-0 px-3 py-1.5 border-l border-slate-100 dark:border-zinc-800">
-                <div className="text-[9px] text-slate-400 dark:text-zinc-600 leading-none mb-0.5">투자금</div>
-                <div className="font-semibold text-slate-700 dark:text-zinc-200 tabular-nums">
-                  {inv.investment_amount_m ? formatM(inv.investment_amount_m) : <span className="text-slate-300 dark:text-zinc-700">—</span>}
-                </div>
-              </div>
-
-              {/* Stake */}
-              <div className="w-20 shrink-0 px-3 py-1.5 border-l border-slate-100 dark:border-zinc-800">
-                <div className="text-[9px] text-slate-400 dark:text-zinc-600 leading-none mb-0.5">지분율</div>
-                <div className="font-semibold text-violet-600 dark:text-violet-400 tabular-nums">
-                  {inv.stake_pct ? `${inv.stake_pct.toFixed(1)}%` : <span className="text-slate-300 dark:text-zinc-700 font-normal">—</span>}
-                </div>
-              </div>
-
-              {/* Valuation at investment */}
-              <div className="w-28 shrink-0 px-3 py-1.5 border-l border-slate-100 dark:border-zinc-800">
-                <div className="text-[9px] text-slate-400 dark:text-zinc-600 leading-none mb-0.5">당시 가치</div>
-                <div className="text-slate-600 dark:text-zinc-300 tabular-nums">
-                  {inv.valuation_at_investment_m ? formatM(inv.valuation_at_investment_m) : <span className="text-slate-300 dark:text-zinc-700">—</span>}
-                </div>
-              </div>
-
-              {/* Investment terms */}
-              <div className="flex-1 min-w-0 px-3 py-1.5 border-l border-slate-100 dark:border-zinc-800">
-                {inv.investment_terms ? (
-                  <>
-                    <div className="text-[9px] text-slate-400 dark:text-zinc-600 leading-none mb-0.5">조건</div>
-                    <div className="text-slate-500 dark:text-zinc-400 truncate" title={inv.investment_terms}>{inv.investment_terms}</div>
-                  </>
-                ) : null}
-              </div>
+      {/* Col 5: signal (flex-1) */}
+      <div className="flex-1 min-w-0 px-3 py-2.5 border-l border-slate-100 dark:border-zinc-800 flex flex-col gap-0.5 justify-center">
+        {signal ? (
+          <>
+            <div className="flex items-start gap-1">
+              {urgency >= 3 && <span className="text-xs shrink-0 leading-none mt-0.5">{getUrgencyDot(urgency)}</span>}
+              <p className="text-[11px] text-slate-500 dark:text-zinc-500 leading-snug line-clamp-2 flex-1 min-w-0">
+                <Highlight text={signal} query={search} />
+              </p>
             </div>
-          ))}
+            {signalTime && <span className="text-[10px] text-slate-300 dark:text-zinc-700">{signalTime}</span>}
+          </>
+        ) : (
+          <span className="text-[11px] text-slate-300 dark:text-zinc-700">—</span>
+        )}
+      </div>
 
-          {/* Cumulative summary row (only for 2+ investments) */}
-          {investments.length > 1 && (
-            <div className="flex items-center gap-4 px-3 py-1.5 bg-slate-100/80 dark:bg-zinc-800/60 border-t border-slate-200 dark:border-zinc-700 text-xs">
-              <span className="text-[10px] text-slate-400 dark:text-zinc-500 font-medium">누적 합계</span>
-              <span className="font-bold text-slate-700 dark:text-zinc-200 tabular-nums">{formatM(totalInvM)}</span>
-              {currentVal && (
-                <>
-                  <span className="text-slate-200 dark:text-zinc-700">·</span>
-                  <span className="text-[10px] text-slate-400 dark:text-zinc-600">현재 기업가치</span>
-                  <span className={cn('font-bold tabular-nums flex items-center gap-0.5', isUp ? 'text-emerald-500' : 'text-rose-400')}>
-                    {formatM(currentVal)}
-                    {isUp ? <TrendingUp size={10} /> : <TrendingDown size={10} />}
-                  </span>
-                  {latestValAtInv && currentVal && (
-                    <span className={cn('text-[10px]', isUp ? 'text-emerald-400' : 'text-rose-400')}>
-                      ({((currentVal / latestValAtInv - 1) * 100).toFixed(0)}% vs 당시)
-                    </span>
-                  )}
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* ── Signal footer ────────────────────────────────────────────────────── */}
-      {signal && (
-        <div className="flex items-center gap-1.5 px-4 pb-2.5">
-          {urgency >= 3 && <span className="text-sm shrink-0 leading-none">{getUrgencyDot(urgency)}</span>}
-          <p className="text-[11px] text-slate-400 dark:text-zinc-500 flex-1 min-w-0 truncate">{signal}</p>
-          {signalTime && <span className="text-[10px] text-slate-300 dark:text-zinc-700 shrink-0">{signalTime}</span>}
-        </div>
-      )}
+      <ChevronRight size={13} className="mx-2 shrink-0 self-center text-slate-200 dark:text-zinc-700 group-hover:text-sky-400 transition-colors" />
     </Link>
   );
 }
@@ -671,17 +701,44 @@ function PortfolioContent() {
         </div>
 
         {/* Portfolio list — own scroll */}
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto flex flex-col">
+          {/* Column headers */}
+          <div className="shrink-0 flex items-center border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900 text-[10px] font-medium text-slate-400 dark:text-zinc-600 select-none border-l-[3px] border-l-transparent">
+            <div className="w-56 shrink-0 px-3 py-1.5">기업명 · 지역</div>
+            <div className="flex-1 min-w-0 px-3 py-1.5 border-l border-slate-200 dark:border-zinc-800">섹터 · 소개</div>
+            <div className={cn('w-44 shrink-0 px-3 py-1.5 border-l border-slate-200 dark:border-zinc-800', (invActive || stakeActive) && 'text-violet-500 dark:text-violet-400')}>
+              투자 내역
+            </div>
+            <div className={cn('w-40 shrink-0 px-3 py-1.5 border-l border-slate-200 dark:border-zinc-800', valActive && 'text-amber-500 dark:text-amber-400')}>
+              기업가치
+            </div>
+            <div className="flex-1 min-w-0 px-3 py-1.5 border-l border-slate-200 dark:border-zinc-800">시그널</div>
+            <div className="w-9 shrink-0" />
+          </div>
+
           {loading ? (
             Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="px-4 py-3 border-b border-slate-100 dark:border-zinc-800 space-y-2 animate-pulse">
-                <div className="flex gap-2">
-                  <div className="h-4 bg-slate-200 dark:bg-zinc-800 rounded w-40" />
-                  <div className="h-4 bg-slate-100 dark:bg-zinc-800/60 rounded w-16" />
-                  <div className="h-4 bg-slate-100 dark:bg-zinc-800/60 rounded w-20" />
+              <div key={i} className="flex items-center border-b border-slate-100 dark:border-zinc-800 animate-pulse">
+                <div className="w-56 shrink-0 px-3 py-3 space-y-1.5">
+                  <div className="h-3.5 bg-slate-200 dark:bg-zinc-800 rounded w-32" />
+                  <div className="h-2.5 bg-slate-100 dark:bg-zinc-800/60 rounded w-20" />
                 </div>
-                <div className="h-3 bg-slate-100 dark:bg-zinc-800/40 rounded w-2/3" />
-                <div className="h-10 bg-slate-50 dark:bg-zinc-900/40 rounded-lg" />
+                <div className="flex-1 px-3 py-3 space-y-1.5 border-l border-slate-100 dark:border-zinc-800">
+                  <div className="h-3 bg-slate-100 dark:bg-zinc-800/60 rounded w-16" />
+                  <div className="h-2.5 bg-slate-50 dark:bg-zinc-800/40 rounded w-full" />
+                </div>
+                <div className="w-44 shrink-0 px-3 py-3 border-l border-slate-100 dark:border-zinc-800 space-y-1.5">
+                  <div className="h-3 bg-slate-100 dark:bg-zinc-800/60 rounded w-16" />
+                  <div className="h-2.5 bg-slate-50 dark:bg-zinc-800/40 rounded w-12" />
+                </div>
+                <div className="w-40 shrink-0 px-3 py-3 border-l border-slate-100 dark:border-zinc-800 space-y-1.5">
+                  <div className="h-2.5 bg-slate-100 dark:bg-zinc-800/60 rounded w-20" />
+                  <div className="h-3 bg-slate-50 dark:bg-zinc-800/40 rounded w-16" />
+                </div>
+                <div className="flex-1 px-3 py-3 border-l border-slate-100 dark:border-zinc-800">
+                  <div className="h-2.5 bg-slate-100 dark:bg-zinc-800/60 rounded w-full" />
+                </div>
+                <div className="w-9 shrink-0" />
               </div>
             ))
           ) : filteredRows.length === 0 ? (
@@ -692,7 +749,13 @@ function PortfolioContent() {
             filteredRows.map(row => (
               <CompanyRow key={row.company_name} row={row}
                 onSectorClick={s => setSector(p => p === s ? '' : s)}
-                onRegionClick={r => setRegion(p => p === r ? '' : r)} />
+                onRegionClick={r => setRegion(p => p === r ? '' : r)}
+                search={search}
+                activeSector={sector}
+                activeRegion={region}
+                invActive={invActive}
+                stakeActive={stakeActive}
+                valActive={valActive} />
             ))
           )}
         </div>

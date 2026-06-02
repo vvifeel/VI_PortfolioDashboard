@@ -9,6 +9,9 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@nivo/geo": "^0.99.0",
+    "@nivo/treemap": "^0.99.0",
+    "@types/topojson-client": "^3.1.5",
     "better-sqlite3": "^12.10.0",
     "date-fns": "^4.4.0",
     "lucide-react": "^1.17.0",
@@ -16,6 +19,8 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.1",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

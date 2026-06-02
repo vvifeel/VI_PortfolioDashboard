@@ -7,6 +7,8 @@ import {
 import { CHART_COLORS } from '@/lib/utils';
 import { cn } from '@/lib/utils';
 import type { ChartData } from '@/lib/types';
+import SectorTreemap from './SectorTreemap';
+import RegionBubbleMap from './RegionBubbleMap';
 
 interface Props {
   charts: ChartData;
@@ -284,11 +286,11 @@ export default function OverviewCharts({
       <div className="grid grid-cols-2 xl:grid-cols-3 gap-3">
 
         <ChartCard title={`섹터 분포${activeSector ? ` · ${activeSector}` : ''}`} active={!!activeSector}>
-          <BarSection data={sectorData} activeItem={activeSector} onClick={onSectorClick} />
+          <SectorTreemap data={sectorData} activeItem={activeSector} onClick={onSectorClick} height={220} />
         </ChartCard>
 
         <ChartCard title={`지역 분포${activeRegion ? ` · ${activeRegion}` : ''}`} active={!!activeRegion}>
-          <BarSection data={regionData} activeItem={activeRegion} onClick={onRegionClick} />
+          <RegionBubbleMap data={regionData} activeItem={activeRegion} onClick={onRegionClick} height={185} />
         </ChartCard>
 
         <ChartCard title={`투자 빈티지${activeYear ? ` · ${activeYear}년` : ' (연도별)'}`} active={!!activeYear}>

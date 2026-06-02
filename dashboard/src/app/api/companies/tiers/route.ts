@@ -13,8 +13,8 @@ function getWriteDb() {
 export async function GET() {
   const db = getDb();
   const companies = db.prepare(`
-    SELECT company_name, monitoring_tier, status, sector
-    FROM companies ORDER BY company_name ASC
+    SELECT company_name, monitoring_tier, status, sector, last_profile_update_at
+    FROM companies ORDER BY monitoring_tier ASC, company_name ASC
   `).all();
   return NextResponse.json({ companies });
 }

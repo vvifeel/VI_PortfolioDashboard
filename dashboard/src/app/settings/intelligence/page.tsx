@@ -2,9 +2,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import {
   Rss, Bot, Globe, Mail, Lock, Zap, RefreshCw,
-  ChevronRight, AlertCircle, CheckCircle2, Clock,
-  ArrowRight, Database, Settings2, BarChart3,
-  PlayCircle, Users, X, GripVertical
+  Clock, ArrowRight, Database, Settings2, BarChart3,
+  PlayCircle, Users, X
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -191,12 +190,10 @@ export default function IntelligencePage() {
   const [showLog, setShowLog] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Phase 4 — tier drag&drop
+  // Tier assignment
   const [companies, setCompanies] = useState<TierCompany[]>([]);
   const [tierSearch, setTierSearch] = useState('');
   const [tierLoading, setTierLoading] = useState(false);
-  const [dragCompany, setDragCompany] = useState<string | null>(null);
-  const [dragOverTier, setDragOverTier] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -437,13 +434,13 @@ export default function IntelligencePage() {
 
       <div className="border-t border-slate-200 dark:border-zinc-800" />
 
-      {/* Tier Drag & Drop Assignment */}
+      {/* Tier Assignment Table */}
       <div>
         <div className="flex items-center justify-between mb-1">
           <div className="flex items-center gap-2">
             <Users size={14} className="text-slate-500 dark:text-zinc-500" />
             <h2 className="text-sm font-semibold text-slate-700 dark:text-zinc-300">기업 티어 배정</h2>
-            <span className="text-xs text-slate-400 dark:text-zinc-600">— 드래그로 조정</span>
+            <span className="text-xs text-slate-400 dark:text-zinc-600">— 변경 즉시 저장</span>
           </div>
           <input
             type="text"
@@ -453,78 +450,84 @@ export default function IntelligencePage() {
             className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-slate-700 dark:text-zinc-300 placeholder-slate-400 dark:placeholder-zinc-600 focus:outline-none focus:ring-1 focus:ring-sky-500 w-44"
           />
         </div>
-        <p className="text-xs text-slate-400 dark:text-zinc-600 mb-4">
-          기업을 드래그해서 티어를 변경하세요. 변경 즉시 저장됩니다.
+        <p className="text-xs text-slate-400 dark:text-zinc-600 mb-3">
+          드롭다운으로 티어를 변경하면 즉시 저장됩니다.
         </p>
 
         {tierLoading ? (
-          <div className="grid grid-cols-3 gap-3">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="h-40 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/40 animate-pulse" />
-            ))}
-          </div>
+          <div className="h-40 rounded-xl border border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/40 animate-pulse" />
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            {[1, 2, 3].map(tierNum => {
-              const ts = TIER_STYLES[tierNum - 1];
-              const tierCompanies = filteredCompanies.filter(c => (c.monitoring_tier ?? 2) === tierNum);
-              const isOver = dragOverTier === tierNum;
+          <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-sm">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 dark:border-zinc-800 bg-slate-50 dark:bg-zinc-900/80">
+                  <th className="text-left px-4 py-2.5 text-xs text-slate-500 dark:text-zinc-500 font-medium">기업명</th>
+                  <th className="text-left px-4 py-2.5 text-xs text-slate-500 dark:text-zinc-500 font-medium">섹터</th>
+                  <th className="text-left px-4 py-2.5 text-xs text-slate-500 dark:text-zinc-500 font-medium">상태</th>
+                  <th className="text-left px-4 py-2.5 text-xs text-slate-500 dark:text-zinc-500 font-medium w-32">티어</th>
+                  <th className="text-left px-4 py-2.5 text-xs text-slate-500 dark:text-zinc-500 font-medium">마지막 업데이트</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCompanies.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="text-center py-8 text-slate-400 dark:text-zinc-600 text-xs">
+                      {tierSearch ? '검색 결과가 없습니다' : '기업이 없습니다'}
+                    </td>
+                  </tr>
+                )}
+                {filteredCompanies.map((c, i) => {
+                  const curTier = c.monitoring_tier ?? 2;
+                  const ts = TIER_STYLES[curTier - 1];
+                  const lastUpdate = (c as any).last_profile_update_at;
+                  const relTime = lastUpdate ? (() => {
+                    const diff = Date.now() - new Date(lastUpdate).getTime();
+                    const d = Math.floor(diff / 86400000);
+                    if (d === 0) return '오늘';
+                    if (d < 7) return `${d}일 전`;
+                    if (d < 30) return `${Math.floor(d / 7)}주 전`;
+                    return `${Math.floor(d / 30)}개월 전`;
+                  })() : '—';
 
-              return (
-                <div
-                  key={tierNum}
-                  onDragOver={(e) => { e.preventDefault(); setDragOverTier(tierNum); }}
-                  onDragLeave={() => setDragOverTier(null)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    if (dragCompany) moveTier(dragCompany, tierNum);
-                    setDragCompany(null);
-                    setDragOverTier(null);
-                  }}
-                  className={cn(
-                    'rounded-xl border transition-all',
-                    isOver ? 'ring-2 ring-sky-400 border-sky-300 dark:border-sky-500/50' : ts.border,
-                    isOver ? 'bg-sky-50/50 dark:bg-sky-500/5' : 'bg-white dark:bg-zinc-900'
-                  )}
-                >
-                  {/* Column header */}
-                  <div className={cn('px-3 py-2.5 border-b flex items-center gap-2', ts.border)}>
-                    <span className={cn('w-2 h-2 rounded-full shrink-0', ts.dot)} />
-                    <span className={cn('text-xs font-semibold', ts.color)}>{ts.label}</span>
-                    <span className="text-xs text-slate-400 dark:text-zinc-600 ml-auto">{tierCompanies.length}개</span>
-                  </div>
-
-                  {/* Company chips */}
-                  <div className="p-2 space-y-1 overflow-y-auto" style={{ maxHeight: '320px' }}>
-                    {tierCompanies.length === 0 ? (
-                      <div className="text-xs text-slate-300 dark:text-zinc-700 text-center py-6">
-                        여기에 드래그하세요
-                      </div>
-                    ) : tierCompanies.map(c => (
-                      <div
-                        key={c.company_name}
-                        draggable
-                        onDragStart={() => setDragCompany(c.company_name)}
-                        onDragEnd={() => { setDragCompany(null); setDragOverTier(null); }}
-                        className={cn(
-                          'flex items-center gap-1.5 px-2 py-1.5 rounded-lg border text-xs cursor-grab active:cursor-grabbing select-none transition-opacity',
-                          ts.chip,
-                          dragCompany === c.company_name && 'opacity-40'
-                        )}
-                      >
-                        <GripVertical size={10} className="opacity-40 shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-medium truncate leading-tight">{c.company_name}</div>
-                          {c.sector && (
-                            <div className="text-[10px] opacity-60 truncate leading-tight">{c.sector}</div>
-                          )}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+                  return (
+                    <tr key={c.company_name}
+                      className={cn(
+                        'border-b border-slate-100 dark:border-zinc-800/50 hover:bg-slate-50 dark:hover:bg-zinc-800/40 transition-colors',
+                        i === filteredCompanies.length - 1 && 'border-b-0'
+                      )}>
+                      <td className="px-4 py-2.5">
+                        <a href={`/portfolio/${encodeURIComponent(c.company_name)}`}
+                          className="text-sm font-medium text-slate-800 dark:text-zinc-200 hover:text-sky-600 dark:hover:text-sky-400 transition-colors">
+                          {c.company_name}
+                        </a>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500 dark:text-zinc-500">
+                        {c.sector ?? '—'}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-slate-500 dark:text-zinc-500">
+                        {c.status ?? '—'}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <select
+                          value={curTier}
+                          onChange={e => moveTier(c.company_name, parseInt(e.target.value))}
+                          className={cn(
+                            'text-xs px-2 py-1 rounded-lg border font-medium appearance-none cursor-pointer focus:outline-none',
+                            ts.chip
+                          )}>
+                          <option value={1}>Tier 1</option>
+                          <option value={2}>Tier 2</option>
+                          <option value={3}>Tier 3</option>
+                        </select>
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-slate-400 dark:text-zinc-600">
+                        {relTime}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
         )}
       </div>

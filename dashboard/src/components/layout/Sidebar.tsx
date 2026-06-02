@@ -2,19 +2,18 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Building2, Newspaper, Rss, Upload, ChevronRight, Zap
+  Building2, Newspaper, Upload, ChevronRight, Zap, BarChart3
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import ThemeToggle from '@/components/ThemeToggle';
 
 const NAV = [
-  { href: '/overview',  label: '대시보드',   icon: LayoutDashboard },
   { href: '/portfolio', label: '포트폴리오',  icon: Building2 },
+  { href: '/overview',  label: '분석 · 통계', icon: BarChart3 },
   { href: '/news',      label: '뉴스 피드',   icon: Newspaper },
 ];
 const SETTINGS_NAV = [
   { href: '/settings/intelligence', label: '인텔리전스 설정', icon: Zap },
-  { href: '/settings/sources',      label: '모니터링 소스',   icon: Rss },
   { href: '/settings/import',       label: '데이터 Import',   icon: Upload },
 ];
 

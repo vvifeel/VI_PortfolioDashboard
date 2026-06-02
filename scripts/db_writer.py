@@ -14,13 +14,32 @@ DB_PATH = os.environ.get("DATABASE_PATH", os.path.join(os.path.dirname(__file__)
 
 # PUBLIC fields allowed for agent writes
 ALLOWED_PROFILE_FIELDS = {
-    "current_employee_count", "employee_count_history", "total_funding_external_m",
-    "latest_external_round", "latest_external_valuation_m", "revenue_range",
-    "competitors", "all_investors", "technologies", "linkedin_url",
-    "twitter_url", "logo_url", "acquisition_info", "ipo_info",
-    "description", "business_model", "key_products",
-    "ceo_name", "cto_name", "cfo_name", "cofounders",
-    "website", "hq_city", "founded_year", "status",
+    # Identity / classification
+    "status", "business_stage", "market_position",
+    "legal_name", "hq_city", "hq_state", "hq_country", "founded_year", "website", "crunchbase_url",
+    # Description
+    "description", "business_model", "revenue_model", "key_products",
+    # People
+    "ceo_name", "ceo_linkedin", "cto_name", "cfo_name",
+    "cofounders", "key_executives", "board_members",
+    # Headcount
+    "current_employee_count", "employee_count_history", "employee_growth_pct",
+    # Financials (external / public)
+    "total_funding_external_m", "latest_external_round", "latest_external_valuation_m",
+    "post_money_valuation_m", "last_funding_date", "last_funding_amount_m",
+    "funding_rounds", "revenue_range", "arr_estimate",
+    "profitability_status", "burn_rate_estimate",
+    # Market
+    "competitors", "all_investors", "technologies",
+    "market_size_estimate", "patents_count",
+    # Social
+    "linkedin_url", "twitter_url", "logo_url",
+    # Exit events
+    "ipo_date", "ipo_exchange", "ipo_ticker", "ipo_price",
+    "acquired_by", "acquired_date", "acquired_price_m",
+    "acquisition_info", "ipo_info",
+    # Intelligence signals
+    "signal_summary", "signal_keywords", "signal_updated_at",
 }
 
 

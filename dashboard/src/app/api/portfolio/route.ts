@@ -8,21 +8,23 @@ export async function GET(request: NextRequest) {
   const region  = searchParams.get('region')  ?? '';
   const round   = searchParams.get('round')   ?? '';
   const status  = searchParams.get('status')  ?? '';
-  const page    = parseInt(searchParams.get('page') ?? '1');
+  const tier    = searchParams.get('tier')    ?? '';
+  const page    = parseInt(searchParams.get('page')  ?? '1');
   const limit   = parseInt(searchParams.get('limit') ?? '30');
   const offset  = (page - 1) * limit;
 
   const db = getDb();
-
   const conditions: string[] = [];
   const params: (string | number)[] = [];
 
   if (search) {
-    conditions.push('(c.company_name LIKE ? OR c.description LIKE ?)');
-    params.push(`%${search}%`, `%${search}%`);
+    conditions.push('(c.company_name LIKE ? OR c.description LIKE ? OR c.sector LIKE ?)');
+    params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
-  if (sector)  { conditions.push('c.sector = ?');  params.push(sector); }
-  if (region)  { conditions.push('c.region = ?');  params.push(region); }
+  if (sector) { conditions.push('c.sector = ?');  params.push(sector); }
+  if (region) { conditions.push('c.region = ?');  params.push(region); }
+  if (tier)   { conditions.push('COALESCE(c.monitoring_tier, 2) = ?'); params.push(parseInt(tier)); }
+
   if (status === 'Alive')    { conditions.push("c.status = 'Alive'"); }
   else if (status === 'IPO') { conditions.push("c.status LIKE 'IPO%'"); }
   else if (status === 'Acquired') { conditions.push("(c.status LIKE 'Acquired%' OR c.status LIKE 'Subsidiary%')"); }
@@ -37,20 +39,45 @@ export async function GET(request: NextRequest) {
 
   const total = (db.prepare(`SELECT COUNT(*) as n FROM companies c ${where}`).get(...params) as { n: number }).n;
 
+  // Sort: signal/news update time first (most recently active companies at top),
+  // then by urgency, then alphabetical
   const rows = db.prepare(`
     SELECT
-      c.company_name, c.sector, c.region, c.status,
-      c.latest_urgency, c.latest_news_headline,
-      (SELECT tags FROM news_items WHERE company_name = c.company_name
+      c.company_name,
+      c.sector,
+      c.region,
+      c.status,
+      c.monitoring_tier,
+      c.latest_urgency,
+      c.latest_news_headline,
+      c.signal_summary,
+      c.signal_keywords,
+      c.signal_updated_at,
+      c.last_profile_update_at,
+      c.founded_year,
+      c.hq_city,
+      c.current_employee_count,
+      c.total_funding_external_m,
+      c.latest_external_round,
+      (SELECT tags FROM news_items
+       WHERE company_name = c.company_name
        ORDER BY urgency_level DESC, collected_at DESC LIMIT 1) as latest_news_tags,
-      (SELECT COUNT(*) FROM portfolio_investments WHERE company_name = c.company_name) as investment_count
+      (SELECT MAX(collected_at) FROM news_items
+       WHERE company_name = c.company_name) as last_news_collected_at,
+      (SELECT COUNT(*) FROM portfolio_investments
+       WHERE company_name = c.company_name) as investment_count
     FROM companies c
     ${where}
-    ORDER BY c.latest_urgency DESC NULLS LAST, c.company_name ASC
+    ORDER BY
+      COALESCE(c.signal_updated_at,
+               (SELECT MAX(collected_at) FROM news_items WHERE company_name = c.company_name),
+               '1970-01-01') DESC,
+      c.latest_urgency DESC NULLS LAST,
+      c.company_name ASC
     LIMIT ? OFFSET ?
   `).all(...params, limit, offset);
 
-  // Filter options
+  // Filter options for sidebar
   const sectors = (db.prepare('SELECT DISTINCT sector FROM companies WHERE sector IS NOT NULL ORDER BY sector').all() as Array<{sector: string}>).map(r => r.sector);
   const regions = (db.prepare('SELECT DISTINCT region FROM companies WHERE region IS NOT NULL ORDER BY region').all() as Array<{region: string}>).map(r => r.region);
   const rounds  = (db.prepare('SELECT DISTINCT round FROM portfolio_investments WHERE round IS NOT NULL ORDER BY round').all() as Array<{round: string}>).map(r => r.round);

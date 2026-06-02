@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
-import { Activity, Building2, Globe, LayoutGrid, TrendingUp, CheckCircle2, Zap, XCircle, RefreshCw } from 'lucide-react';
+import Link from 'next/link';
+import { Activity, Building2, Globe, LayoutGrid, TrendingUp, CheckCircle2, Zap, XCircle, RefreshCw, Calendar } from 'lucide-react';
 import OverviewCharts from '@/components/charts/OverviewCharts';
 import type { ChartData } from '@/lib/types';
 import { getUrgencyDot, getUrgencyStyle, getUrgencyLabel, cn } from '@/lib/utils';
@@ -16,46 +16,67 @@ interface NewsItem {
   source?: string;
 }
 
-const YEAR_FILTERS = [
-  { label: 'All', value: '' },
-  { label: '5Y', value: String(new Date().getFullYear() - 5) },
-  { label: '3Y', value: String(new Date().getFullYear() - 3) },
-  { label: '1Y', value: String(new Date().getFullYear() - 1) },
+const CUR_YEAR = new Date().getFullYear();
+const PRESETS = [
+  { label: '전체', dateFrom: '', dateTo: '' },
+  { label: '5Y',  dateFrom: `${CUR_YEAR - 5}-01-01`, dateTo: '' },
+  { label: '3Y',  dateFrom: `${CUR_YEAR - 3}-01-01`, dateTo: '' },
+  { label: '1Y',  dateFrom: `${CUR_YEAR - 1}-01-01`, dateTo: '' },
 ];
 
-function KpiCard({ label, value, icon: Icon, color, sub }: {
-  label: string; value: number; icon: React.ElementType; color: string; sub?: string;
+function KpiCard({ label, value, icon: Icon, color, sub, href }: {
+  label: string; value: number; icon: React.ElementType; color: string; sub?: string; href?: string;
 }) {
-  return (
-    <div className="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 flex items-start gap-4 shadow-sm">
+  const inner = (
+    <div className={cn(
+      'bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-2xl p-5 flex items-start gap-4 shadow-sm transition-all',
+      href && 'hover:border-sky-300 dark:hover:border-sky-500/40 hover:shadow-md cursor-pointer group'
+    )}>
       <div className={`p-3 rounded-xl ${color}`}>
         <Icon size={20} />
       </div>
-      <div>
+      <div className="flex-1 min-w-0">
         <div className="text-3xl font-bold text-slate-900 dark:text-zinc-100 tabular-nums">{value.toLocaleString()}</div>
-        <div className="text-sm text-slate-500 dark:text-zinc-400 mt-0.5">{label}</div>
+        <div className={cn('text-sm text-slate-500 dark:text-zinc-400 mt-0.5', href && 'group-hover:text-sky-600 dark:group-hover:text-sky-400 transition-colors')}>
+          {label}
+        </div>
         {sub && <div className="text-xs text-slate-400 dark:text-zinc-600 mt-0.5">{sub}</div>}
       </div>
     </div>
   );
+
+  if (href) return <Link href={href}>{inner}</Link>;
+  return inner;
 }
 
 export default function OverviewPage() {
-  const router = useRouter();
-  const [data, setData] = useState<{ kpis: Record<string, number>; charts: ChartData; recentNews: NewsItem[]; lastRun?: { run_at: string; news_collected: number } } | null>(null);
-  const [yearFrom, setYearFrom] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<{
+    kpis: Record<string, number>;
+    charts: ChartData;
+    recentNews: NewsItem[];
+    lastRun?: { run_at: string; news_collected: number };
+    dateRange?: { dateFrom: string; dateTo: string };
+  } | null>(null);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo]     = useState('');
+  const [loading, setLoading]   = useState(true);
   const [activityData, setActivityData] = useState<any>(null);
+
+  // Determine which preset is active
+  const activePreset = PRESETS.find(p => p.dateFrom === dateFrom && p.dateTo === dateTo)?.label ?? null;
 
   const fetch_ = useCallback(async () => {
     setLoading(true);
     try {
-      const params = yearFrom ? `?yearFrom=${yearFrom}` : '';
-      const res = await fetch(`/api/overview${params}`);
+      const params = new URLSearchParams();
+      if (dateFrom) params.set('dateFrom', dateFrom);
+      if (dateTo)   params.set('dateTo', dateTo);
+      const qs = params.toString();
+      const res = await fetch(`/api/overview${qs ? `?${qs}` : ''}`);
       setData(await res.json());
     } catch {}
     setLoading(false);
-  }, [yearFrom]);
+  }, [dateFrom, dateTo]);
 
   useEffect(() => { fetch_(); }, [fetch_]);
 
@@ -63,50 +84,86 @@ export default function OverviewPage() {
     fetch('/api/activity?limit=8&days=7').then(r => r.json()).then(setActivityData).catch(() => {});
   }, []);
 
-  const kpis = data?.kpis;
+  const kpis   = data?.kpis;
   const charts = data?.charts;
-  const news = data?.recentNews ?? [];
+  const news   = data?.recentNews ?? [];
 
-  const handleSectorClick = (sector: string) => router.push(`/portfolio?sector=${encodeURIComponent(sector)}`);
-  const handleRegionClick = (region: string) => router.push(`/portfolio?region=${encodeURIComponent(region)}`);
+  const handleSectorClick = (sector: string) => window.location.href = `/portfolio?sector=${encodeURIComponent(sector)}`;
+  const handleRegionClick = (region: string) => window.location.href = `/portfolio?region=${encodeURIComponent(region)}`;
+
+  const applyPreset = (p: typeof PRESETS[number]) => {
+    setDateFrom(p.dateFrom);
+    setDateTo(p.dateTo);
+  };
 
   return (
     <div className="p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 dark:text-zinc-100">포트폴리오 대시보드</h1>
+          <h1 className="text-2xl font-bold text-slate-900 dark:text-zinc-100">분석 · 통계</h1>
           <p className="text-sm text-slate-500 dark:text-zinc-500 mt-1">
             {data?.lastRun
               ? `마지막 업데이트: ${new Date(data.lastRun.run_at).toLocaleString('ko-KR')}`
               : '뉴스 수집 대기 중'}
           </p>
         </div>
-        {/* Year Range Filter */}
-        <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-lg p-1">
-          {YEAR_FILTERS.map(f => (
-            <button key={f.label} onClick={() => setYearFrom(f.value)}
-              className={cn('px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
-                yearFrom === f.value
-                  ? 'bg-white dark:bg-zinc-700 text-slate-900 dark:text-zinc-100 shadow-sm'
-                  : 'text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200')}>
-              {f.label}
-            </button>
-          ))}
+
+        {/* Date range controls */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Preset pills */}
+          <div className="flex items-center gap-1 bg-slate-100 dark:bg-zinc-800 rounded-lg p-1">
+            {PRESETS.map(p => (
+              <button key={p.label} onClick={() => applyPreset(p)}
+                className={cn('px-3 py-1.5 rounded-md text-sm font-medium transition-colors',
+                  activePreset === p.label
+                    ? 'bg-white dark:bg-zinc-700 text-slate-900 dark:text-zinc-100 shadow-sm'
+                    : 'text-slate-500 dark:text-zinc-400 hover:text-slate-700 dark:hover:text-zinc-200')}>
+                {p.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom range inputs */}
+          <div className="flex items-center gap-1.5 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-lg px-3 py-1.5">
+            <Calendar size={12} className="text-slate-400 dark:text-zinc-600 shrink-0" />
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={e => setDateFrom(e.target.value)}
+              className="text-sm text-slate-700 dark:text-zinc-200 bg-transparent focus:outline-none w-32"
+              placeholder="시작일"
+            />
+            <span className="text-slate-400 dark:text-zinc-600 text-xs">~</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={e => setDateTo(e.target.value)}
+              className="text-sm text-slate-700 dark:text-zinc-200 bg-transparent focus:outline-none w-32"
+              placeholder="종료일"
+            />
+          </div>
         </div>
       </div>
 
       {/* KPI Grid */}
       {kpis && !loading && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <KpiCard label="포트폴리오 기업"   value={kpis.totalCompanies}   icon={Building2}   color="bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400" />
-          <KpiCard label="총 투자 건수"       value={kpis.totalInvestments} icon={TrendingUp}   color="bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400" />
+          <KpiCard label="포트폴리오 기업"   value={kpis.totalCompanies}   icon={Building2}   color="bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400"         href="/portfolio" />
+          <KpiCard label="총 투자 건수"       value={kpis.totalInvestments} icon={TrendingUp}   color="bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400" href="/portfolio" />
           <KpiCard label="커버 섹터"          value={kpis.totalSectors}     icon={LayoutGrid}   color="bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400" />
           <KpiCard label="투자 국가"          value={kpis.totalRegions}     icon={Globe}        color="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" />
-          <KpiCard label="Active" value={kpis.aliveCount}    icon={CheckCircle2} color="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" sub="현재 운영중" />
-          <KpiCard label="IPO"    value={kpis.ipoCount}      icon={Zap}          color="bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400" sub="상장 완료" />
-          <KpiCard label="Acquired" value={kpis.acquiredCount} icon={Activity}   color="bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400" sub="인수 완료" />
-          <KpiCard label="Dead / Closed" value={kpis.deadCount} icon={XCircle}  color="bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400" sub="종료" />
+          <KpiCard label="Active"     value={kpis.aliveCount}    icon={CheckCircle2} color="bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" sub="현재 운영중" href="/portfolio?status=Alive" />
+          <KpiCard label="IPO"        value={kpis.ipoCount}      icon={Zap}          color="bg-sky-50 dark:bg-sky-500/10 text-sky-600 dark:text-sky-400"                  sub="상장 완료"  href="/portfolio?status=IPO" />
+          <KpiCard label="Acquired"   value={kpis.acquiredCount} icon={Activity}     color="bg-violet-50 dark:bg-violet-500/10 text-violet-600 dark:text-violet-400"      sub="인수 완료"  href="/portfolio?status=Acquired" />
+          <KpiCard label="Dead / Closed" value={kpis.deadCount}  icon={XCircle}      color="bg-red-50 dark:bg-red-500/10 text-red-500 dark:text-red-400"                  sub="종료"       href="/portfolio?status=Dead" />
+        </div>
+      )}
+      {loading && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="h-24 rounded-2xl bg-slate-100 dark:bg-zinc-800/40 animate-pulse" />
+          ))}
         </div>
       )}
 
@@ -133,7 +190,7 @@ export default function OverviewPage() {
               <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse inline-block"></span>
               실시간 인텔리전스
             </h2>
-            <a href="/news" className="text-xs text-sky-600 dark:text-sky-400 hover:underline">전체보기</a>
+            <Link href="/news" className="text-xs text-sky-600 dark:text-sky-400 hover:underline">전체보기</Link>
           </div>
           <div className="space-y-2">
             {news.length === 0 ? (
@@ -188,10 +245,7 @@ export default function OverviewPage() {
               const fields: string[] = JSON.parse(item.fields_updated ?? '[]');
               const after: Record<string, unknown> = JSON.parse(item.after_values ?? '{}');
               return (
-                <div key={i} className={cn(
-                  'px-4 py-3 flex items-start gap-3',
-                  i > 0 && 'border-t border-slate-100 dark:border-zinc-800'
-                )}>
+                <div key={i} className={cn('px-4 py-3 flex items-start gap-3', i > 0 && 'border-t border-slate-100 dark:border-zinc-800')}>
                   <div className="w-1.5 h-1.5 rounded-full bg-sky-400 mt-2 shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
@@ -204,9 +258,7 @@ export default function OverviewPage() {
                           {f}
                         </span>
                       ))}
-                      <span className="text-xs text-slate-400 dark:text-zinc-600 ml-auto">
-                        {item.source}
-                      </span>
+                      <span className="text-xs text-slate-400 dark:text-zinc-600 ml-auto">{item.source}</span>
                     </div>
                     <div className="text-xs text-slate-500 dark:text-zinc-500 mt-0.5">{item.reason}</div>
                     {Object.keys(after).length > 0 && (
